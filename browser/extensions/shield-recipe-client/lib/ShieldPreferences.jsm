@@ -4,16 +4,16 @@
 "use strict";
 
 const {utils: Cu} = Components;
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(
+ChromeUtils.defineModuleGetter(
   this, "AppConstants", "resource://gre/modules/AppConstants.jsm"
 );
-XPCOMUtils.defineLazyModuleGetter(
+ChromeUtils.defineModuleGetter(
   this, "AddonStudies", "resource://shield-recipe-client/lib/AddonStudies.jsm"
 );
-XPCOMUtils.defineLazyModuleGetter(
+ChromeUtils.defineModuleGetter(
   this, "CleanupManager", "resource://shield-recipe-client/lib/CleanupManager.jsm"
 );
 
@@ -73,22 +73,24 @@ this.ShieldPreferences = {
     let prefValue;
     switch (prefName) {
       // If the FHR pref changes, set the opt-out-study pref to the value it is changing to.
-      case FHR_UPLOAD_ENABLED_PREF:
+      case FHR_UPLOAD_ENABLED_PREF: {
         prefValue = Services.prefs.getBoolPref(FHR_UPLOAD_ENABLED_PREF);
         Services.prefs.setBoolPref(OPT_OUT_STUDIES_ENABLED_PREF, prefValue);
         break;
+      }
 
       // If the opt-out pref changes to be false, disable all current studies.
-      case OPT_OUT_STUDIES_ENABLED_PREF:
+      case OPT_OUT_STUDIES_ENABLED_PREF: {
         prefValue = Services.prefs.getBoolPref(OPT_OUT_STUDIES_ENABLED_PREF);
         if (!prefValue) {
           for (const study of await AddonStudies.getAll()) {
             if (study.active) {
-              await AddonStudies.stop(study.recipeId);
+              await AddonStudies.stop(study.recipeId, "general-opt-out");
             }
           }
         }
         break;
+      }
     }
   },
 
@@ -109,7 +111,8 @@ this.ShieldPreferences = {
     checkbox.setAttribute("class", "tail-with-learn-more");
     checkbox.setAttribute("label", "Allow Firefox to install and run studies");
     checkbox.setAttribute("preference", OPT_OUT_STUDIES_ENABLED_PREF);
-    checkbox.setAttribute("disabled", !Services.prefs.getBoolPref(FHR_UPLOAD_ENABLED_PREF));
+    checkbox.setAttribute("disabled", Services.prefs.prefIsLocked(FHR_UPLOAD_ENABLED_PREF) ||
+      !AppConstants.MOZ_TELEMETRY_REPORTING);
     hContainer.appendChild(checkbox);
 
     const viewStudies = doc.createElementNS(XUL_NS, "label");
@@ -120,24 +123,19 @@ this.ShieldPreferences = {
     viewStudies.classList.add("learnMore", "text-link");
     hContainer.appendChild(viewStudies);
 
-    const optOutPref = doc.createElementNS(XUL_NS, "preference");
-    optOutPref.setAttribute("id", OPT_OUT_STUDIES_ENABLED_PREF);
-    optOutPref.setAttribute("name", OPT_OUT_STUDIES_ENABLED_PREF);
-    optOutPref.setAttribute("type", "bool");
-
     // Preference instances for prefs that we need to monitor while the page is open.
     doc.defaultView.Preferences.add({ id: OPT_OUT_STUDIES_ENABLED_PREF, type: "bool" });
 
-    // Weirdly, FHR doesn't have a <preference> element on the page, so we create it.
+    // Weirdly, FHR doesn't have a Preference instance on the page, so we create it.
     const fhrPref = doc.defaultView.Preferences.add({ id: FHR_UPLOAD_ENABLED_PREF, type: "bool" });
-    fhrPref.on("change", function(event) {
-      // Avoid reference to the document directly, to avoid leaks.
-      const eventTargetCheckbox = event.target.ownerDocument.getElementById("optOutStudiesEnabled");
-      eventTargetCheckbox.disabled = !Services.prefs.getBoolPref(FHR_UPLOAD_ENABLED_PREF);
-    });
+    function onChangeFHRPref(event) {
+      checkbox.disabled = !Services.prefs.getBoolPref(FHR_UPLOAD_ENABLED_PREF);
+    }
+    fhrPref.on("change", onChangeFHRPref);
+    doc.defaultView.addEventListener("unload", () => fhrPref.off("change", onChangeFHRPref), { once: true });
 
     // Actually inject the elements we've created.
-    const parent = doc.getElementById("submitHealthReportBox").closest("vbox");
+    const parent = doc.getElementById("submitHealthReportBox").closest("description");
     parent.appendChild(container);
   },
 };

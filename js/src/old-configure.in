@@ -547,23 +547,12 @@ esac
 MOZ_DOING_LTO(lto_is_enabled)
 
 dnl ========================================================
-dnl Add optional and non-optional hardening flags
+dnl Add optional and non-optional hardening flags from toolchain.configure
 dnl ========================================================
 
-dnl In at least glibc-2.25, _FORTIFY_SOURCE requires compiling
-dnl with optimization (Bug 1417452)
-
-dnl Note that in the top-level old-configure.in, we don't enable
-dnl FORTIFY_SOURCE on Android. But in js/ we *can* enable it on
-dnl Android, so we do.
-
-if test -n "$MOZ_OPTIMIZE"; then
-   if test "$GNU_CC" -o -n "${CLANG_CC}${CLANG_CL}"; then
-      CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
-      CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
-      CXXFLAGS="$CXXFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
-   fi
-fi
+CFLAGS="$CFLAGS $MOZ_HARDENING_CFLAGS_JS"
+CPPFLAGS="$CPPFLAGS $MOZ_HARDENING_CFLAGS_JS"
+CXXFLAGS="$CXXFLAGS $MOZ_HARDENING_CFLAGS_JS"
 
 dnl ========================================================
 dnl System overrides of the defaults for target
@@ -1507,18 +1496,6 @@ if test -n "$MOZ_DEBUG"; then
 fi
 
 dnl ========================================================
-dnl Enable breakpoint for artificial OOMs
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(oom-breakpoint,
-[  --enable-oom-breakpoint
-                          Enable a breakpoint function for artificial OOMs],
-    JS_OOM_BREAKPOINT=1,
-    JS_OOM_BREAKPOINT= )
-if test -n "$JS_OOM_BREAKPOINT"; then
-    AC_DEFINE(JS_OOM_BREAKPOINT)
-fi
-
-dnl ========================================================
 dnl = Enable using the clang plugin to build
 dnl ========================================================
 
@@ -1870,11 +1847,6 @@ AC_CHECK_FUNCS(posix_fadvise posix_fallocate)
 dnl Set various defines and substitutions
 dnl ========================================================
 
-if test "$MOZ_DEBUG"; then
-    AC_DEFINE(MOZ_REFLOW_PERF)
-    AC_DEFINE(MOZ_REFLOW_PERF_DSP)
-fi
-
 AC_SUBST(MOZ_DEV_EDITION)
 if test -n "$MOZ_DEV_EDITION"; then
     AC_DEFINE(MOZ_DEV_EDITION)
@@ -1886,7 +1858,7 @@ dnl ========================================================
 
 MOZ_CHECK_ALLOCATOR
 
-AC_CHECK_FUNCS(setlocale localeconv)
+AC_CHECK_FUNCS(localeconv)
 
 AC_SUBST(ac_configure_args)
 

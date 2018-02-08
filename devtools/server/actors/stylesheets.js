@@ -174,7 +174,7 @@ var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
   get safeHref() {
     let href = this.href;
     if (!href) {
-      if (this.ownerNode instanceof Ci.nsIDOMHTMLDocument) {
+      if (this.ownerNode.nodeType == this.ownerNode.DOCUMENT_NODE) {
         href = this.ownerNode.location.href;
       } else if (this.ownerNode.ownerDocument &&
                  this.ownerNode.ownerDocument.location) {
@@ -237,27 +237,11 @@ var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
   },
 
   /**
-   * Test whether all the rules in this sheet have associated source.
-   * @return {Boolean} true if all the rules have source; false if
-   *         some rule was created via CSSOM.
+   * Test whether this sheet has been modified by CSSOM.
+   * @return {Boolean} true if changed by CSSOM.
    */
-  allRulesHaveSource: function () {
-    let rules;
-    try {
-      rules = this.rawSheet.cssRules;
-    } catch (e) {
-      // sheet isn't loaded yet
-      return true;
-    }
-
-    for (let i = 0; i < rules.length; i++) {
-      let rule = rules[i];
-      if (InspectorUtils.getRelativeRuleLine(rule) === 0) {
-        return false;
-      }
-    }
-
-    return true;
+  hasRulesModifiedByCSSOM: function () {
+    return InspectorUtils.hasRulesModifiedByCSSOM(this.rawSheet);
   },
 
   /**
@@ -316,7 +300,7 @@ var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
 
     let docHref;
     if (this.ownerNode) {
-      if (this.ownerNode instanceof Ci.nsIDOMHTMLDocument) {
+      if (this.ownerNode.nodeType == this.ownerNode.DOCUMENT_NODE) {
         docHref = this.ownerNode.location.href;
       } else if (this.ownerNode.ownerDocument && this.ownerNode.ownerDocument.location) {
         docHref = this.ownerNode.ownerDocument.location.href;
@@ -490,7 +474,7 @@ var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
       return null;
     }
     let content = request._response.content;
-    if (request._discardResponseBody || !content) {
+    if (request._discardResponseBody || request._truncated || !content) {
       return null;
     }
     if (content.text.type != "longString") {

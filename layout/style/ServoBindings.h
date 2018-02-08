@@ -23,8 +23,7 @@
 #include "nsStyleStruct.h"
 
 /*
- * API for Servo to access Gecko data structures. This file must compile as valid
- * C code in order for the binding generator to parse it.
+ * API for Servo to access Gecko data structures.
  *
  * Functions beginning with Gecko_ are implemented in Gecko and invoked from Servo.
  * Functions beginning with Servo_ are implemented in Servo and invoked from Gecko.
@@ -41,9 +40,9 @@ namespace mozilla {
   class SharedFontList;
   enum class CSSPseudoElementType : uint8_t;
   struct Keyframe;
-  enum Side;
   struct StyleTransition;
   namespace css {
+    class ErrorReporter;
     struct URLValue;
     struct ImageValue;
     class LoaderReusableStyleSheets;
@@ -196,24 +195,26 @@ nsIDocument::DocumentTheme Gecko_GetDocumentLWTheme(const nsIDocument* aDocument
 
 // Attributes.
 #define SERVO_DECLARE_ELEMENT_ATTR_MATCHING_FUNCTIONS(prefix_, implementor_)  \
-  nsAtom* prefix_##AtomAttrValue(implementor_ element, nsAtom* attribute);  \
-  nsAtom* prefix_##LangValue(implementor_ element);                          \
-  bool prefix_##HasAttr(implementor_ element, nsAtom* ns, nsAtom* name);    \
-  bool prefix_##AttrEquals(implementor_ element, nsAtom* ns, nsAtom* name,  \
-                           nsAtom* str, bool ignoreCase);                    \
-  bool prefix_##AttrDashEquals(implementor_ element, nsAtom* ns,             \
-                               nsAtom* name, nsAtom* str, bool ignore_case);\
-  bool prefix_##AttrIncludes(implementor_ element, nsAtom* ns,               \
-                             nsAtom* name, nsAtom* str, bool ignore_case);  \
-  bool prefix_##AttrHasSubstring(implementor_ element, nsAtom* ns,           \
-                                 nsAtom* name, nsAtom* str,                 \
+  nsAtom* prefix_##AtomAttrValue(implementor_ element, nsAtom* attribute);    \
+  nsAtom* prefix_##LangValue(implementor_ element);                           \
+  bool prefix_##HasAttr(implementor_ element, nsAtom* ns, nsAtom* name);      \
+  bool prefix_##AttrEquals(implementor_ element, nsAtom* ns, nsAtom* name,    \
+                           nsAtom* str, bool ignoreCase);                     \
+  bool prefix_##AttrDashEquals(implementor_ element, nsAtom* ns,              \
+                               nsAtom* name, nsAtom* str, bool ignore_case);  \
+  bool prefix_##AttrIncludes(implementor_ element, nsAtom* ns,                \
+                             nsAtom* name, nsAtom* str, bool ignore_case);    \
+  bool prefix_##AttrHasSubstring(implementor_ element, nsAtom* ns,            \
+                                 nsAtom* name, nsAtom* str,                   \
                                  bool ignore_case);                           \
-  bool prefix_##AttrHasPrefix(implementor_ element, nsAtom* ns,              \
-                              nsAtom* name, nsAtom* str, bool ignore_case); \
-  bool prefix_##AttrHasSuffix(implementor_ element, nsAtom* ns,              \
-                              nsAtom* name, nsAtom* str, bool ignore_case); \
-  uint32_t prefix_##ClassOrClassList(implementor_ element, nsAtom** class_,  \
-                                     nsAtom*** classList);
+  bool prefix_##AttrHasPrefix(implementor_ element, nsAtom* ns,               \
+                              nsAtom* name, nsAtom* str, bool ignore_case);   \
+  bool prefix_##AttrHasSuffix(implementor_ element, nsAtom* ns,               \
+                              nsAtom* name, nsAtom* str, bool ignore_case);   \
+  uint32_t prefix_##ClassOrClassList(implementor_ element, nsAtom** class_,   \
+                                     nsAtom*** classList);                    \
+  bool prefix_##HasClass(implementor_ element, nsAtom* class_,                \
+                         bool ignore_case);
 
 SERVO_DECLARE_ELEMENT_ATTR_MATCHING_FUNCTIONS(Gecko_, RawGeckoElementBorrowed)
 SERVO_DECLARE_ELEMENT_ATTR_MATCHING_FUNCTIONS(Gecko_Snapshot,
@@ -291,9 +292,6 @@ void Gecko_ReleaseAtom(nsAtom* aAtom);
 const uint16_t* Gecko_GetAtomAsUTF16(nsAtom* aAtom, uint32_t* aLength);
 bool Gecko_AtomEqualsUTF8(nsAtom* aAtom, const char* aString, uint32_t aLength);
 bool Gecko_AtomEqualsUTF8IgnoreCase(nsAtom* aAtom, const char* aString, uint32_t aLength);
-
-// Border style
-void Gecko_EnsureMozBorderColors(nsStyleBorder* aBorder);
 
 // Font style
 void Gecko_CopyFontFamilyFrom(nsFont* dst, const nsFont* src);
@@ -396,6 +394,10 @@ void Gecko_UnsetNodeFlags(RawGeckoNodeBorrowed node, uint32_t flags);
 void Gecko_NoteDirtyElement(RawGeckoElementBorrowed element);
 void Gecko_NoteDirtySubtreeForInvalidation(RawGeckoElementBorrowed element);
 void Gecko_NoteAnimationOnlyDirtyElement(RawGeckoElementBorrowed element);
+
+bool Gecko_AnimationNameMayBeReferencedFromStyle(
+  RawGeckoPresContextBorrowed pres_context,
+  nsAtom* name);
 
 // Incremental restyle.
 mozilla::CSSPseudoElementType Gecko_GetImplementedPseudo(RawGeckoElementBorrowed element);

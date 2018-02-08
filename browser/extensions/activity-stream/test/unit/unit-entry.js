@@ -30,7 +30,7 @@ overrider.set({
   AppConstants: {MOZILLA_OFFICIAL: true},
   Components: {
     classes: {},
-    interfaces: {},
+    interfaces: {nsIHttpChannel: {REFERRER_POLICY_UNSAFE_URL: 5}},
     utils: {
       import() {},
       importGlobalProperties() {},
@@ -38,6 +38,10 @@ overrider.set({
       now: () => window.performance.now()
     },
     isSuccessCode: () => true
+  },
+  ChromeUtils: {
+    defineModuleGetter() {},
+    import() {}
   },
   // eslint-disable-next-line object-shorthand
   ContentSearchUIController: function() {}, // NB: This is a function/constructor
@@ -90,7 +94,10 @@ overrider.set({
       getVisibleEngines: () => [{identifier: "google"}, {identifier: "bing"}],
       defaultEngine: {identifier: "google"}
     },
-    scriptSecurityManager: {getSystemPrincipal() {}}
+    scriptSecurityManager: {
+      createNullPrincipal() {},
+      getSystemPrincipal() {}
+    }
   },
   XPCOMUtils: {
     defineLazyGetter(_1, _2, f) { f(); },

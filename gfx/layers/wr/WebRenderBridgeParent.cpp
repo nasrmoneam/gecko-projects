@@ -270,7 +270,7 @@ bool
 WebRenderBridgeParent::UpdateResources(const nsTArray<OpUpdateResource>& aResourceUpdates,
                                        const nsTArray<RefCountedShmem>& aSmallShmems,
                                        const nsTArray<ipc::Shmem>& aLargeShmems,
-                                       wr::ResourceUpdateQueue& aUpdates)
+                                       wr::TransactionBuilder& aUpdates)
 {
   wr::ShmSegmentsReader reader(aSmallShmems, aLargeShmems);
 
@@ -374,7 +374,7 @@ WebRenderBridgeParent::UpdateResources(const nsTArray<OpUpdateResource>& aResour
 
 bool
 WebRenderBridgeParent::AddExternalImage(wr::ExternalImageId aExtId, wr::ImageKey aKey,
-                                        wr::ResourceUpdateQueue& aResources)
+                                        wr::TransactionBuilder& aResources)
 {
   Range<wr::ImageKey> keys(&aKey, 1);
   // Check if key is obsoleted.
@@ -446,16 +446,14 @@ WebRenderBridgeParent::RecvUpdateResources(nsTArray<OpUpdateResource>&& aResourc
     return IPC_OK();
   }
 
-  wr::ResourceUpdateQueue updates;
+  wr::TransactionBuilder txn;
 
-  if (!UpdateResources(aResourceUpdates, aSmallShmems, aLargeShmems, updates)) {
+  if (!UpdateResources(aResourceUpdates, aSmallShmems, aLargeShmems, txn)) {
     wr::IpcResourceUpdateQueue::ReleaseShmems(this, aSmallShmems);
     wr::IpcResourceUpdateQueue::ReleaseShmems(this, aLargeShmems);
     IPC_FAIL(this, "Invalid WebRender resource data shmem or address.");
   }
 
-  wr::TransactionBuilder txn;
-  txn.UpdateResources(updates);
   mApi->SendTransaction(txn);
 
   wr::IpcResourceUpdateQueue::ReleaseShmems(this, aSmallShmems);
@@ -595,13 +593,10 @@ WebRenderBridgeParent::RecvSetDisplayList(const gfx::IntSize& aSize,
 
   ProcessWebRenderParentCommands(aCommands);
 
-  wr::ResourceUpdateQueue resources;
-  if (!UpdateResources(aResourceUpdates, aSmallShmems, aLargeShmems, resources)) {
+  wr::TransactionBuilder txn;
+  if (!UpdateResources(aResourceUpdates, aSmallShmems, aLargeShmems, txn)) {
     return IPC_FAIL(this, "Failed to deserialize resource updates");
   }
-
-  wr::TransactionBuilder txn;
-  txn.UpdateResources(resources);
 
   wr::Vec<uint8_t> dlData(Move(dl));
 
@@ -610,8 +605,9 @@ WebRenderBridgeParent::RecvSetDisplayList(const gfx::IntSize& aSize,
   // In that case do not send the commands to webrender.
   if (mIdNamespace == aIdNamespace) {
     if (mWidget) {
-      LayoutDeviceIntSize size = mWidget->GetClientSize();
-      txn.SetWindowParameters(size);
+      LayoutDeviceIntSize widgetSize = mWidget->GetClientSize();
+      LayoutDeviceIntRect docRect(LayoutDeviceIntPoint(), widgetSize);
+      txn.SetWindowParameters(widgetSize, docRect);
     }
     gfx::Color clearColor(0.f, 0.f, 0.f, 0.f);
     txn.SetDisplayList(clearColor, wr::NewEpoch(wrEpoch), LayerSize(aSize.width, aSize.height),
@@ -809,11 +805,7 @@ WebRenderBridgeParent::RecvGetSnapshot(PTextureParent* aTexture)
 
   mForceRendering = true;
 
-  if (mCompositorScheduler->NeedsComposite()) {
-    mCompositorScheduler->CancelCurrentCompositeTask();
-    mCompositorScheduler->ForceComposeToTarget(nullptr, nullptr);
-  }
-
+  mCompositorScheduler->FlushPendingComposite();
   mApi->Readback(size, buffer, buffer_size);
 
   mForceRendering = false;
@@ -1015,6 +1007,15 @@ WebRenderBridgeParent::RecvForceComposite()
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult
+WebRenderBridgeParent::RecvCapture()
+{
+  if (!mDestroyed) {
+    mApi->Capture();
+  }
+  return IPC_OK();
+}
+
 already_AddRefed<AsyncPanZoomController>
 WebRenderBridgeParent::GetTargetAPZC(const FrameMetrics::ViewID& aScrollId)
 {
@@ -1194,6 +1195,11 @@ WebRenderBridgeParent::SampleAnimations(nsTArray<wr::WrOpacityProperty>& aOpacit
 void
 WebRenderBridgeParent::CompositeToTarget(gfx::DrawTarget* aTarget, const gfx::IntRect* aRect)
 {
+  // The two arguments are part of the CompositorVsyncSchedulerOwner API but in
+  // this implementation they should never be non-null.
+  MOZ_ASSERT(aTarget == nullptr);
+  MOZ_ASSERT(aRect == nullptr);
+
   AUTO_PROFILER_TRACING("Paint", "CompositeToTraget");
   if (mPaused) {
     return;
@@ -1332,23 +1338,27 @@ WebRenderBridgeParent::ScheduleGenerateFrame()
 }
 
 void
-WebRenderBridgeParent::FlushRendering(bool aIsSync)
+WebRenderBridgeParent::FlushRendering()
 {
   if (mDestroyed) {
     return;
   }
 
-  if (!mCompositorScheduler->NeedsComposite()) {
-    return;
-  }
-
   mForceRendering = true;
-  mCompositorScheduler->CancelCurrentCompositeTask();
-  mCompositorScheduler->ForceComposeToTarget(nullptr, nullptr);
-  if (aIsSync) {
+  if (mCompositorScheduler->FlushPendingComposite()) {
     mApi->WaitFlushed();
   }
   mForceRendering = false;
+}
+
+void
+WebRenderBridgeParent::FlushRenderingAsync()
+{
+  if (mDestroyed) {
+    return;
+  }
+
+  mCompositorScheduler->FlushPendingComposite();
 }
 
 void

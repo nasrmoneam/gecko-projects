@@ -4,10 +4,10 @@
 
 use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
 use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
-use {ColorF, ComplexClipRegion, DisplayItem, ExtendMode, FilterOp, FontInstanceKey, GlyphInstance};
-use {GlyphOptions, Gradient, GradientDisplayItem, GradientStop, IframeDisplayItem};
-use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo, LayoutPoint};
-use {LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
+use {ColorF, ComplexClipRegion, DisplayItem, ExtendMode, ExternalScrollId, FilterOp};
+use {FontInstanceKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem, GradientStop};
+use {IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo};
+use {LayoutPoint, LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
 use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, Shadow};
@@ -22,9 +22,9 @@ use std::marker::PhantomData;
 use std::slice;
 use time::precise_time_ns;
 
-#[cfg(feature = "debug-serialization")]
+#[cfg(feature = "deserialize")]
 use serde::de::Deserializer;
-#[cfg(feature = "debug-serialization")]
+#[cfg(feature = "serialize")]
 use serde::ser::{Serializer, SerializeSeq};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
@@ -192,7 +192,8 @@ impl<'a> BuiltDisplayListIter<'a> {
             cur_item: DisplayItem {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
-                clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId::dummy())),
+                clip_and_scroll:
+                    ClipAndScrollInfo::simple(ClipId::root_scroll_node(PipelineId::dummy())),
                 info: LayoutPrimitiveInfo::new(LayoutRect::zero()),
             },
             cur_stops: ItemRange::default(),
@@ -419,7 +420,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
 impl<'a, T: for<'de> Deserialize<'de>> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
 
 
-#[cfg(feature = "debug-serialization")]
+#[cfg(feature = "serialize")]
 impl Serialize for BuiltDisplayList {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use display_item::CompletelySpecificDisplayItem::*;
@@ -482,7 +483,7 @@ impl Serialize for BuiltDisplayList {
 // a display list from one format just to immediately
 // serialize then into a "built" `Vec<u8>`.
 
-#[cfg(feature = "debug-serialization")]
+#[cfg(feature = "deserialize")]
 impl<'de> Deserialize<'de> for BuiltDisplayList {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -490,17 +491,6 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
     {
         use display_item::CompletelySpecificDisplayItem::*;
         use display_item::{CompletelySpecificDisplayItem, GenericDisplayItem};
-
-        // Push a vector of things into the DL according to the
-        // convention used by `skip_iter` and `push_iter`
-        fn push_vec<T: Clone + Serialize>(data: &mut Vec<u8>, vec: Vec<T>) {
-            let vec_len = vec.len();
-            let byte_size = mem::size_of::<T>() * vec_len;
-            serialize_fast(data, &byte_size);
-            serialize_fast(data, &vec_len);
-            let count = serialize_iter_fast(data, vec.into_iter());
-            assert_eq!(count, vec_len);
-        }
 
         let list = Vec::<GenericDisplayItem<CompletelySpecificDisplayItem>>
             ::deserialize(deserializer)?;
@@ -511,15 +501,15 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
             let item = DisplayItem {
                 item: match complete.item {
                     Clip(specific_item, complex_clips) => {
-                        push_vec(&mut temp, complex_clips);
+                        DisplayListBuilder::push_iter_impl(&mut temp, complex_clips);
                         SpecificDisplayItem::Clip(specific_item)
                     },
                     ClipChain(specific_item, clip_chain_ids) => {
-                        push_vec(&mut temp, clip_chain_ids);
+                        DisplayListBuilder::push_iter_impl(&mut temp, clip_chain_ids);
                         SpecificDisplayItem::ClipChain(specific_item)
                     }
                     ScrollFrame(specific_item, complex_clips) => {
-                        push_vec(&mut temp, complex_clips);
+                        DisplayListBuilder::push_iter_impl(&mut temp, complex_clips);
                         SpecificDisplayItem::ScrollFrame(specific_item)
                     },
                     StickyFrame(specific_item) => SpecificDisplayItem::StickyFrame(specific_item),
@@ -527,7 +517,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                     ClearRectangle => SpecificDisplayItem::ClearRectangle,
                     Line(specific_item) => SpecificDisplayItem::Line(specific_item),
                     Text(specific_item, glyphs) => {
-                        push_vec(&mut temp, glyphs);
+                        DisplayListBuilder::push_iter_impl(&mut temp, glyphs);
                         SpecificDisplayItem::Text(specific_item)
                     },
                     Image(specific_item) => SpecificDisplayItem::Image(specific_item),
@@ -539,12 +529,12 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                         SpecificDisplayItem::RadialGradient(specific_item),
                     Iframe(specific_item) => SpecificDisplayItem::Iframe(specific_item),
                     PushStackingContext(specific_item, filters) => {
-                        push_vec(&mut temp, filters);
+                        DisplayListBuilder::push_iter_impl(&mut temp, filters);
                         SpecificDisplayItem::PushStackingContext(specific_item)
                     },
                     PopStackingContext => SpecificDisplayItem::PopStackingContext,
                     SetGradientStops(stops) => {
-                        push_vec(&mut temp, stops);
+                        DisplayListBuilder::push_iter_impl(&mut temp, stops);
                         SpecificDisplayItem::SetGradientStops
                     },
                     PushShadow(specific_item) => SpecificDisplayItem::PushShadow(specific_item),
@@ -927,36 +917,46 @@ impl DisplayListBuilder {
         )
     }
 
+    fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator + Clone,
+        I::Item: Serialize,
+    {
+        let iter = iter_source.into_iter();
+        let len = iter.len();
+        // Format:
+        // payload_byte_size: usize, item_count: usize, [I; item_count]
+
+        // We write a dummy value so there's room for later
+        let byte_size_offset = data.len();
+        serialize_fast(data, &0usize);
+        serialize_fast(data, &len);
+        let payload_offset = data.len();
+
+        let count = serialize_iter_fast(data, iter);
+
+        // Now write the actual byte_size
+        let final_offset = data.len();
+        let byte_size = final_offset - payload_offset;
+
+        // Note we don't use serialize_fast because we don't want to change the Vec's len
+        bincode::serialize_into(
+            &mut &mut data[byte_size_offset..],
+            &byte_size,
+            bincode::Infinite,
+        ).unwrap();
+
+        debug_assert_eq!(len, count);
+    }
+
     fn push_iter<I>(&mut self, iter: I)
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator + Clone,
         I::Item: Serialize,
     {
-        let iter = iter.into_iter();
-        let len = iter.len();
-
-        // Format:
-        // payload_byte_size: usize, item_count: usize, [I; item_count]
-
-        // We write a dummy value so there's room for later
-        let byte_size_offset = self.data.len();
-        serialize_fast(&mut self.data, &0usize);
-        serialize_fast(&mut self.data, &len);
-        let payload_offset = self.data.len();
-
-        let count = serialize_iter_fast(&mut self.data, iter.into_iter());
-
-        // Now write the actual byte_size
-        let final_offset = self.data.len();
-        let byte_size = final_offset - payload_offset;
-
-        // Note we don't use serialize_fast because we don't want to change the Vec's len
-        bincode::serialize_into(&mut &mut self.data[byte_size_offset..],
-                                &byte_size,
-                                bincode::Infinite).unwrap();
-
-        debug_assert_eq!(len, count);
+        Self::push_iter_impl(&mut self.data, iter);
     }
 
     pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: ColorF) {
@@ -1254,7 +1254,7 @@ impl DisplayListBuilder {
     }
 
     /// Pushes a linear gradient to be displayed.
-    /// 
+    ///
     /// The gradient itself is described in the
     /// `gradient` parameter. It is drawn on
     /// a "tile" with the dimensions from `tile_size`.
@@ -1262,9 +1262,9 @@ impl DisplayListBuilder {
     /// to the bottom infinitly. If `tile_spacing`
     /// is not zero spacers with the given dimensions
     /// are inserted between the tiles as seams.
-    /// 
+    ///
     /// The origin of the tiles is given in `info.rect.origin`.
-    /// If the gradient should only be displayed once limit 
+    /// If the gradient should only be displayed once limit
     /// the `info.rect.size` to a single tile.
     /// The gradient is only visible within the local clip.
     pub fn push_gradient(
@@ -1284,7 +1284,7 @@ impl DisplayListBuilder {
     }
 
     /// Pushes a radial gradient to be displayed.
-    /// 
+    ///
     /// See [`push_gradient`](#method.push_gradient) for explanation.
     pub fn push_radial_gradient(
         &mut self,
@@ -1338,11 +1338,9 @@ impl DisplayListBuilder {
         self.push_iter(stops);
     }
 
-    fn generate_clip_id(&mut self, id: Option<ClipId>) -> ClipId {
-        id.unwrap_or_else(|| {
-            self.next_clip_id += 1;
-            ClipId::Clip(self.next_clip_id - 1, self.pipeline_id)
-        })
+    fn generate_clip_id(&mut self) -> ClipId {
+        self.next_clip_id += 1;
+        ClipId::Clip(self.next_clip_id - 1, self.pipeline_id)
     }
 
     fn generate_clip_chain_id(&mut self) -> ClipChainId {
@@ -1352,7 +1350,7 @@ impl DisplayListBuilder {
 
     pub fn define_scroll_frame<I>(
         &mut self,
-        id: Option<ClipId>,
+        external_id: Option<ExternalScrollId>,
         content_rect: LayoutRect,
         clip_rect: LayoutRect,
         complex_clips: I,
@@ -1365,8 +1363,8 @@ impl DisplayListBuilder {
     {
         let parent = self.clip_stack.last().unwrap().scroll_node_id;
         self.define_scroll_frame_with_parent(
-            id,
             parent,
+            external_id,
             content_rect,
             clip_rect,
             complex_clips,
@@ -1376,8 +1374,8 @@ impl DisplayListBuilder {
 
     pub fn define_scroll_frame_with_parent<I>(
         &mut self,
-        id: Option<ClipId>,
         parent: ClipId,
+        external_id: Option<ExternalScrollId>,
         content_rect: LayoutRect,
         clip_rect: LayoutRect,
         complex_clips: I,
@@ -1388,9 +1386,10 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
     {
-        let id = self.generate_clip_id(id);
+        let id = self.generate_clip_id();
         let item = SpecificDisplayItem::ScrollFrame(ScrollFrameDisplayItem {
             id,
+            external_id,
             image_mask,
             scroll_sensitivity,
         });
@@ -1419,7 +1418,6 @@ impl DisplayListBuilder {
 
     pub fn define_clip<I>(
         &mut self,
-        id: Option<ClipId>,
         clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
@@ -1430,16 +1428,15 @@ impl DisplayListBuilder {
     {
         let parent = self.clip_stack.last().unwrap().scroll_node_id;
         self.define_clip_with_parent(
-            id,
             parent,
             clip_rect,
             complex_clips,
-            image_mask)
+            image_mask
+        )
     }
 
     pub fn define_clip_with_parent<I>(
         &mut self,
-        id: Option<ClipId>,
         parent: ClipId,
         clip_rect: LayoutRect,
         complex_clips: I,
@@ -1449,7 +1446,7 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
     {
-        let id = self.generate_clip_id(id);
+        let id = self.generate_clip_id();
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id,
             image_mask: image_mask,
@@ -1465,7 +1462,6 @@ impl DisplayListBuilder {
 
     pub fn define_sticky_frame(
         &mut self,
-        id: Option<ClipId>,
         frame_rect: LayoutRect,
         margins: SideOffsets2D<Option<f32>>,
         vertical_offset_bounds: StickyOffsetBounds,
@@ -1473,7 +1469,7 @@ impl DisplayListBuilder {
         previously_applied_offset: LayoutVector2D,
 
     ) -> ClipId {
-        let id = self.generate_clip_id(id);
+        let id = self.generate_clip_id();
         let item = SpecificDisplayItem::StickyFrame(StickyFrameDisplayItem {
             id,
             margins,

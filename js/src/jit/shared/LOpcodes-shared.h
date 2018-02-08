@@ -147,6 +147,9 @@
     _(IsNullOrLikeUndefinedT)       \
     _(IsNullOrLikeUndefinedAndBranchV)\
     _(IsNullOrLikeUndefinedAndBranchT)\
+    _(SameValueD)                   \
+    _(SameValueV)                   \
+    _(SameValueVM)                  \
     _(MinMaxI)                      \
     _(MinMaxD)                      \
     _(MinMaxF)                      \
@@ -277,6 +280,7 @@
     _(BoundsCheck)                  \
     _(BoundsCheckRange)             \
     _(BoundsCheckLower)             \
+    _(SpectreMaskIndex)             \
     _(LoadElementV)                 \
     _(LoadElementT)                 \
     _(LoadElementHole)              \
@@ -382,7 +386,7 @@
     _(HasOwnCache)                  \
     _(InstanceOfO)                  \
     _(InstanceOfV)                  \
-    _(CallInstanceOf)               \
+    _(InstanceOfCache)              \
     _(InterruptCheck)               \
     _(Rotate)                       \
     _(RotateI64)                    \

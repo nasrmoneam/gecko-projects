@@ -85,19 +85,7 @@ class ServoStyleSet
   typedef ServoElementSnapshotTable SnapshotTable;
 
 public:
-  static bool IsInServoTraversal()
-  {
-    // The callers of this function are generally main-thread-only _except_
-    // for potentially running during the Servo traversal, in which case they may
-    // take special paths that avoid writing to caches and the like. In order
-    // to allow those callers to branch efficiently without checking TLS, we
-    // maintain this static boolean. However, the danger is that those callers
-    // are generally unprepared to deal with non-Servo-but-also-non-main-thread
-    // callers, and are likely to take the main-thread codepath if this function
-    // returns false. So we assert against other non-main-thread callers here.
-    MOZ_ASSERT(sInServoTraversal || NS_IsMainThread());
-    return sInServoTraversal;
-  }
+  static bool IsInServoTraversal() { return mozilla::IsInServoTraversal(); }
 
 #ifdef DEBUG
   // Used for debug assertions. We make this debug-only to prevent callers from
@@ -145,6 +133,9 @@ public:
   // All the relevant changes are handled in RuleAdded / RuleRemoved / etc, and
   // the relevant AppendSheet / RemoveSheet...
   void RecordStyleSheetChange(ServoStyleSheet*, StyleSheet::ChangeType) {}
+
+  // Runs style invalidation due to document state changes.
+  void InvalidateStyleForDocumentStateChanges(EventStates aStatesChanged);
 
   void RecordShadowStyleChange(dom::ShadowRoot* aShadowRoot) {
     // FIXME(emilio): When we properly support shadow dom we'll need to do
@@ -648,8 +639,6 @@ private:
   // Map from raw Servo style rule to Gecko's wrapper object.
   // Constructed lazily when requested by devtools.
   UniquePtr<ServoStyleRuleMap> mStyleRuleMap;
-
-  static ServoStyleSet* sInServoTraversal;
 };
 
 class UACacheReporter final : public nsIMemoryReporter

@@ -75,6 +75,7 @@ public class GeckoSession extends LayerSession
             new String[]{
                 "GeckoView:ContextMenu",
                 "GeckoView:DOMTitleChanged",
+                "GeckoView:DOMWindowFocus",
                 "GeckoView:FullScreenEnter",
                 "GeckoView:FullScreenExit"
             }
@@ -94,6 +95,8 @@ public class GeckoSession extends LayerSession
                 } else if ("GeckoView:DOMTitleChanged".equals(event)) {
                     listener.onTitleChange(GeckoSession.this,
                                            message.getString("title"));
+                } else if ("GeckoView:DOMWindowFocus".equals(event)) {
+                    listener.onFocusRequest(GeckoSession.this);
                 } else if ("GeckoView:FullScreenEnter".equals(event)) {
                     listener.onFullScreen(GeckoSession.this, true);
                 } else if ("GeckoView:FullScreenExit".equals(event)) {
@@ -176,6 +179,26 @@ public class GeckoSession extends LayerSession
                     listener.onScrollChanged(GeckoSession.this,
                                              message.getInt("scrollX"),
                                              message.getInt("scrollY"));
+                }
+            }
+        };
+
+    private final GeckoSessionHandler<TrackingProtectionDelegate> mTrackingProtectionHandler =
+        new GeckoSessionHandler<TrackingProtectionDelegate>(
+            "GeckoViewTrackingProtection", this,
+            new String[]{ "GeckoView:TrackingProtectionBlocked" }
+        ) {
+            @Override
+            public void handleMessage(final TrackingProtectionDelegate delegate,
+                                      final String event,
+                                      final GeckoBundle message,
+                                      final EventCallback callback) {
+
+                if ("GeckoView:TrackingProtectionBlocked".equals(event)) {
+                    final String uri = message.getString("src");
+                    final String matchedList = message.getString("matchedList");
+                    delegate.onTrackerBlocked(GeckoSession.this, uri,
+                        TrackingProtection.listToCategory(matchedList));
                 }
             }
         };
@@ -316,6 +339,11 @@ public class GeckoSession extends LayerSession
             // read from any parcels.
             asBinder().attachInterface(null, Window.class.getName());
 
+            // Reset our queue, so we don't end up with queued calls on a disposed object.
+            synchronized (this) {
+                mNativeQueue.reset(State.INITIAL);
+            }
+
             if (GeckoThread.isStateAtLeast(GeckoThread.State.PROFILE_READY)) {
                 nativeDisposeNative();
             } else {
@@ -342,7 +370,7 @@ public class GeckoSession extends LayerSession
                 // then return the old queue to its initial state if applicable,
                 // because the old queue is no longer the active queue.
                 nativeQueue.setState(mNativeQueue.getState());
-                mNativeQueue.checkAndSetState(State.READY, State.INITIAL);
+                mNativeQueue.reset(State.INITIAL);
                 mNativeQueue = nativeQueue;
             }
         }
@@ -706,6 +734,23 @@ public class GeckoSession extends LayerSession
     */
     public void setScrollListener(ScrollListener listener) {
         mScrollHandler.setListener(listener, this);
+    }
+
+    /**
+    * Set the tracking protection callback handler.
+    * This will replace the current handler.
+    * @param listener An implementation of TrackingProtectionDelegate.
+    */
+    public void setTrackingProtectionDelegate(TrackingProtectionDelegate delegate) {
+        mTrackingProtectionHandler.setListener(delegate, this);
+    }
+
+    /**
+    * Get the tracking protection callback handler.
+    * @return The current tracking protection callback handler.
+    */
+    public TrackingProtectionDelegate getTrackingProtectionDelegate() {
+        return mTrackingProtectionHandler.getListener();
     }
 
     /**
@@ -1193,6 +1238,13 @@ public class GeckoSession extends LayerSession
         void onTitleChange(GeckoSession session, String title);
 
         /**
+        * A page has requested focus. Note that window.focus() in content will not result
+        * in this being called.
+        * @param session The GeckoSession that initiated the callback.
+        */
+        void onFocusRequest(GeckoSession session);
+
+        /**
          * A page has entered or exited full screen mode. Typically, the implementation
          * would set the Activity containing the GeckoSession to full screen when the page is
          * in full screen mode.
@@ -1675,6 +1727,47 @@ public class GeckoSession extends LayerSession
         * @param scrollY The new vertical scroll position in pixels.
         */
         public void onScrollChanged(GeckoSession session, int scrollX, int scrollY);
+    }
+
+    private final TrackingProtection mTrackingProtection = new TrackingProtection(this);
+
+    /**
+     * GeckoSession applications implement this interface to handle tracking
+     * protection events.
+     **/
+    public interface TrackingProtectionDelegate {
+        static final int CATEGORY_AD = 1 << 0;
+        static final int CATEGORY_ANALYTIC = 1 << 1;
+        static final int CATEGORY_SOCIAL = 1 << 2;
+        static final int CATEGORY_CONTENT = 1 << 3;
+
+        /**
+         * A tracking element has been blocked from loading.
+         *
+        * @param session The GeckoSession that initiated the callback.
+        * @param uri The URI of the blocked element.
+        * @param categories The tracker categories of the blocked element.
+        *                   One or more of the {@link #CATEGORY_AD CATEGORY_*}
+        *                   flags.
+        */
+        void onTrackerBlocked(GeckoSession session, String uri, int categories);
+    }
+
+    /**
+     * Enable tracking protection.
+     * @param categories The categories of trackers that should be blocked.
+     *                   Use one or more of the {@link #CATEGORY_AD CATEGORY_*}
+     *                   flags.
+     **/
+    public void enableTrackingProtection(int categories) {
+        mTrackingProtection.enable(categories);
+    }
+
+    /**
+     * Disable tracking protection.
+     **/
+    public void disableTrackingProtection() {
+        mTrackingProtection.disable();
     }
 
     /**

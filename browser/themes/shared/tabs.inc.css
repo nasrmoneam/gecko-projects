@@ -6,9 +6,13 @@
 %filter substitution
 %define horizontalTabPadding 9px
 
+/* This can't live on the tabbrowser because it's used for the titlebar height, too. */
 :root {
-  --tabs-top-border-width: 0px;
   --tab-min-height: 33px;
+}
+
+#tabbrowser-tabs {
+  --tabs-top-border-width: 0px;
   --tab-min-width: 76px;
   --tab-loading-fill: #0A84FF;
 }
@@ -21,7 +25,7 @@
   --tab-min-height: 41px;
 }
 
-:root:-moz-lwtheme {
+#tabbrowser-tabs:-moz-lwtheme {
   --tab-line-color: var(--lwt-accent-color);
 }
 
@@ -43,6 +47,20 @@ tabbrowser {
 
 .tab-stack {
   min-height: inherit;
+}
+
+@supports -moz-bool-pref("layout.css.emulate-moz-box-with-flex") {
+  .tab-stack {
+    /* Needed to allow tabs to shrink to be skinnier than their page-title: */
+    min-width: 0;
+  }
+
+  .tabbrowser-arrowscrollbox > .arrowscrollbox-scrollbox > .scrollbox-innerbox {
+    /* Needed to prevent tabstrip from growing as wide as the sum of the tabs'
+       page-title widths (when we'd rather have it be as wide as the window and
+       compress the tabs to their minimum size): */
+    max-width: 100%;
+  }
 }
 
 .tabbrowser-tab {
@@ -220,9 +238,6 @@ tabbrowser {
 
 .tab-icon-image {
   list-style-image: url("chrome://mozapps/skin/places/defaultFavicon.svg");
-}
-
-.tab-icon-image[src^="chrome://"] {
   -moz-context-properties: fill;
   fill: currentColor;
 }
@@ -356,6 +371,8 @@ tabbrowser {
 .tab-label {
   margin-inline-end: 0;
   margin-inline-start: 0;
+  /* Maintain consistent alignment in case of font fallback for non-Latin characters. */
+  line-height: 1.7em;
 }
 
 .tab-close-button {
@@ -688,6 +705,8 @@ tabbrowser {
 
 .alltabs-item > .menu-iconic-left > .menu-iconic-icon {
   list-style-image: url("chrome://mozapps/skin/places/defaultFavicon.svg");
+  -moz-context-properties: fill;
+  fill: currentColor;
 }
 
 .alltabs-item[busy] > .menu-iconic-left > .menu-iconic-icon {

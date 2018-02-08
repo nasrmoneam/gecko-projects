@@ -28,7 +28,6 @@ extern crate malloc_size_of;
 extern crate metrics;
 extern crate msg;
 extern crate net_traits;
-extern crate nonzero;
 extern crate parking_lot;
 #[macro_use]
 extern crate profile_traits;
@@ -76,9 +75,9 @@ use layout::incremental::{LayoutDamageComputation, RelayoutMode, SpecialRestyleD
 use layout::layout_debug;
 use layout::parallel;
 use layout::query::{LayoutRPCImpl, LayoutThreadData, process_content_box_request, process_content_boxes_request};
-use layout::query::{process_margin_style_query, process_node_overflow_request, process_resolved_style_request};
 use layout::query::{process_node_geometry_request, process_node_scroll_area_request};
-use layout::query::{process_node_scroll_root_id_request, process_offset_parent_query};
+use layout::query::{process_node_scroll_root_id_request, process_offset_parent_query, process_resolved_style_request};
+use layout::query::process_style_query;
 use layout::sequential;
 use layout::traversal::{ComputeStackingRelativePositions, PreorderFlowTraversal, RecalcStyleAndConstructFlows};
 use layout::wrapper::LayoutNodeLayoutData;
@@ -95,7 +94,7 @@ use profile_traits::time::{self, TimerMetadata, profile};
 use profile_traits::time::{TimerMetadataFrameType, TimerMetadataReflowType};
 use script_layout_interface::message::{Msg, NewLayoutThreadInfo, NodesFromPointQueryType, Reflow};
 use script_layout_interface::message::{ReflowComplete, ReflowGoal, ScriptReflow};
-use script_layout_interface::rpc::{LayoutRPC, MarginStyleResponse, NodeOverflowResponse, OffsetParentResponse};
+use script_layout_interface::rpc::{LayoutRPC, StyleResponse, OffsetParentResponse};
 use script_layout_interface::rpc::TextIndexResponse;
 use script_layout_interface::wrapper_traits::LayoutNode;
 use script_traits::{ConstellationControlMsg, LayoutControlMsg, LayoutMsg as ConstellationMsg};
@@ -520,10 +519,9 @@ impl LayoutThread {
                     client_rect_response: Rect::zero(),
                     scroll_root_id_response: None,
                     scroll_area_response: Rect::zero(),
-                    overflow_response: NodeOverflowResponse(None),
                     resolved_style_response: String::new(),
                     offset_parent_response: OffsetParentResponse::empty(),
-                    margin_style_response: MarginStyleResponse::empty(),
+                    style_response: StyleResponse(None),
                     scroll_offsets: HashMap::new(),
                     text_index_response: TextIndexResponse(None),
                     nodes_from_point_response: vec![],
@@ -705,12 +703,13 @@ impl LayoutThread {
                 rw_data.scroll_offsets.insert(state.scroll_root_id, state.scroll_offset);
 
                 let point = Point2D::new(-state.scroll_offset.x, -state.scroll_offset.y);
-                self.webrender_api.scroll_node_with_id(
-                    self.webrender_document,
+                let mut txn = webrender_api::Transaction::new();
+                txn.scroll_node_with_id(
                     webrender_api::LayoutPoint::from_untyped(&point),
                     state.scroll_root_id,
                     webrender_api::ScrollClamping::ToContentBounds
                 );
+                self.webrender_api.send_transaction(self.webrender_document, txn);
             }
             Msg::ReapStyleAndLayoutData(dead_data) => {
                 unsafe {
@@ -1044,15 +1043,15 @@ impl LayoutThread {
             // Progressive Web Metrics.
             self.paint_time_metrics.maybe_observe_paint_time(self, epoch, &*display_list);
 
-            self.webrender_api.set_display_list(
-                self.webrender_document,
+            let mut txn = webrender_api::Transaction::new();
+            txn.set_display_list(
                 webrender_api::Epoch(epoch.0),
                 Some(get_root_flow_background_color(layout_root)),
                 viewport_size,
                 builder.finalize(),
-                true,
-                webrender_api::ResourceUpdates::new());
-            self.webrender_api.generate_frame(self.webrender_document, None);
+                true);
+            txn.generate_frame();
+            self.webrender_api.send_transaction(self.webrender_document, txn);
         });
     }
 
@@ -1092,9 +1091,6 @@ impl LayoutThread {
                     ReflowGoal::NodeScrollGeometryQuery(_) => {
                         rw_data.scroll_area_response = Rect::zero();
                     },
-                    ReflowGoal::NodeOverflowQuery(_) => {
-                        rw_data.overflow_response = NodeOverflowResponse(None);
-                    },
                     ReflowGoal::NodeScrollRootIdQuery(_) => {
                         rw_data.scroll_root_id_response = None;
                     },
@@ -1104,8 +1100,8 @@ impl LayoutThread {
                     ReflowGoal::OffsetParentQuery(_) => {
                         rw_data.offset_parent_response = OffsetParentResponse::empty();
                     },
-                    ReflowGoal::MarginStyleQuery(_) => {
-                        rw_data.margin_style_response = MarginStyleResponse::empty();
+                    ReflowGoal::StyleQuery(_) => {
+                        rw_data.style_response = StyleResponse(None);
                     },
                     ReflowGoal::TextIndexQuery(..) => {
                         rw_data.text_index_response = TextIndexResponse(None);
@@ -1194,8 +1190,6 @@ impl LayoutThread {
                 debug!("Doc sheets changed, flushing author sheets too");
                 self.stylist.force_stylesheet_origins_dirty(Origin::Author.into());
             }
-
-            self.stylist.flush(&guards, Some(element));
         }
 
         if viewport_size_changed {
@@ -1245,6 +1239,8 @@ impl LayoutThread {
             style_data.damage = restyle.damage;
             debug!("Noting restyle for {:?}: {:?}", el, style_data);
         }
+
+        self.stylist.flush(&guards, Some(element), Some(&map));
 
         // Create a layout context for use throughout the following passes.
         let mut layout_context =
@@ -1379,10 +1375,6 @@ impl LayoutThread {
                 let node = unsafe { ServoLayoutNode::new(&node) };
                 rw_data.scroll_area_response = process_node_scroll_area_request(node, root_flow);
             },
-            ReflowGoal::NodeOverflowQuery(node) => {
-                let node = unsafe { ServoLayoutNode::new(&node) };
-                rw_data.overflow_response = process_node_overflow_request(node);
-            },
             ReflowGoal::NodeScrollRootIdQuery(node) => {
                 let node = unsafe { ServoLayoutNode::new(&node) };
                 rw_data.scroll_root_id_response = Some(process_node_scroll_root_id_request(self.id,
@@ -1401,9 +1393,9 @@ impl LayoutThread {
                 let node = unsafe { ServoLayoutNode::new(&node) };
                 rw_data.offset_parent_response = process_offset_parent_query(node, root_flow);
             },
-            ReflowGoal::MarginStyleQuery(node) => {
+            ReflowGoal::StyleQuery(node) => {
                 let node = unsafe { ServoLayoutNode::new(&node) };
-                rw_data.margin_style_response = process_margin_style_query(node);
+                rw_data.style_response = process_style_query(node);
             },
             ReflowGoal::NodesFromPointQuery(client_point, ref reflow_goal) => {
                 let mut flags = match reflow_goal {
@@ -1491,8 +1483,11 @@ impl LayoutThread {
                         self.profiler_metadata(),
                         self.time_profiler_chan.clone(),
                         || {
-                            animation::recalc_style_for_animations(
-                                &layout_context, FlowRef::deref_mut(&mut root_flow), &animations)
+                            animation::recalc_style_for_animations::<ServoLayoutElement>(
+                                &layout_context,
+                                FlowRef::deref_mut(&mut root_flow),
+                                &animations,
+                            )
                         });
             }
             self.perform_post_style_recalc_layout_passes(&mut root_flow,
@@ -1522,14 +1517,16 @@ impl LayoutThread {
                 .as_mut()
                 .map(|nodes| &mut **nodes);
             // Kick off animations if any were triggered, expire completed ones.
-            animation::update_animation_state(&self.constellation_chan,
-                                              &self.script_chan,
-                                              &mut *self.running_animations.write(),
-                                              &mut *self.expired_animations.write(),
-                                              newly_transitioning_nodes,
-                                              &self.new_animations_receiver,
-                                              self.id,
-                                              &self.timer);
+            animation::update_animation_state::<ServoLayoutElement>(
+                &self.constellation_chan,
+                &self.script_chan,
+                &mut *self.running_animations.write(),
+                &mut *self.expired_animations.write(),
+                newly_transitioning_nodes,
+                &self.new_animations_receiver,
+                self.id,
+                &self.timer,
+            );
         }
 
         profile(time::ProfilerCategory::LayoutRestyleDamagePropagation,

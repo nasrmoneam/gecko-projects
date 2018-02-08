@@ -118,7 +118,6 @@
 #include "XPCForwards.h"
 #include "XPCLog.h"
 #include "xpccomponents.h"
-#include "xpcexception.h"
 #include "xpcjsid.h"
 #include "prenv.h"
 #include "prcvar.h"
@@ -128,7 +127,6 @@
 #include "MainThreadUtils.h"
 
 #include "nsIConsoleService.h"
-#include "nsIException.h"
 
 #include "nsVariant.h"
 #include "nsIPropertyBag.h"
@@ -161,6 +159,12 @@
 #undef GetClassName
 #endif
 #endif /* XP_WIN */
+
+namespace mozilla {
+namespace dom {
+class Exception;
+} // namespace dom
+} // namespace mozilla
 
 /***************************************************************************/
 // default initial sizes for maps (hashtables)
@@ -435,6 +439,10 @@ public:
         IDX_VALUE                   ,
         IDX_QUERY_INTERFACE         ,
         IDX_COMPONENTS              ,
+        IDX_CC                      ,
+        IDX_CI                      ,
+        IDX_CR                      ,
+        IDX_CU                      ,
         IDX_WRAPPED_JSOBJECT        ,
         IDX_OBJECT                  ,
         IDX_FUNCTION                ,
@@ -1843,7 +1851,7 @@ private:
                                       mozilla::dom::AutoEntryScript& aes,
                                       const char * aPropertyName,
                                       const char * anInterfaceName,
-                                      nsIException* aSyntheticException = nullptr);
+                                      mozilla::dom::Exception* aSyntheticException = nullptr);
     virtual ~nsXPCWrappedJSClass();
 
     nsXPCWrappedJSClass() = delete;
@@ -2132,13 +2140,13 @@ public:
     static nsresult JSValToXPCException(JS::MutableHandleValue s,
                                         const char* ifaceName,
                                         const char* methodName,
-                                        nsIException** exception);
+                                        mozilla::dom::Exception** exception);
 
     static nsresult ConstructException(nsresult rv, const char* message,
                                        const char* ifaceName,
                                        const char* methodName,
                                        nsISupports* data,
-                                       nsIException** exception,
+                                       mozilla::dom::Exception** exception,
                                        JSContext* cx,
                                        JS::Value* jsExceptionPtr);
 
@@ -2352,18 +2360,6 @@ xpc_JSObjectToID(JSContext* cx, JSObject* obj);
 
 extern bool
 xpc_JSObjectIsID(JSContext* cx, JSObject* obj);
-
-/***************************************************************************/
-// in XPCDebug.cpp
-
-extern bool
-xpc_DumpJSStack(bool showArgs, bool showLocals, bool showThisProps);
-
-// Return a newly-allocated string containing a representation of the
-// current JS stack.
-extern JS::UniqueChars
-xpc_PrintJSStack(JSContext* cx, bool showArgs, bool showLocals,
-                 bool showThisProps);
 
 /******************************************************************************
  * Handles pre/post script processing.

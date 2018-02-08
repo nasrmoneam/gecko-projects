@@ -22,6 +22,9 @@
 #include "mozilla/dom/ProgressEvent.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
 #include "mozilla/dom/URLSearchParams.h"
+#include "mozilla/dom/WorkerScope.h"
+#include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/Telemetry.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
@@ -29,18 +32,12 @@
 #include "nsThreadUtils.h"
 #include "nsVariant.h"
 
-#include "RuntimeService.h"
-#include "WorkerScope.h"
-#include "WorkerPrivate.h"
-#include "WorkerRunnable.h"
 #include "XMLHttpRequestUpload.h"
 
 #include "mozilla/UniquePtr.h"
 
 namespace mozilla {
 namespace dom {
-
-using namespace workers;
 
 /* static */ void
 XMLHttpRequestWorker::StateData::trace(JSTracer *aTrc)
@@ -97,6 +94,8 @@ public:
   // Read on multiple threads.
   WorkerPrivate* mWorkerPrivate;
   XMLHttpRequestWorker* mXMLHttpRequestPrivate;
+  const ClientInfo mClientInfo;
+  const Maybe<ServiceWorkerDescriptor> mController;
 
   // XHR Params:
   bool mMozAnon;
@@ -132,8 +131,11 @@ public:
   bool mArrayBufferResponseWasTransferred;
 
 public:
-  Proxy(XMLHttpRequestWorker* aXHRPrivate, bool aMozAnon, bool aMozSystem)
+  Proxy(XMLHttpRequestWorker* aXHRPrivate, const ClientInfo& aClientInfo,
+        const Maybe<ServiceWorkerDescriptor>& aController, bool aMozAnon,
+        bool aMozSystem)
   : mWorkerPrivate(nullptr), mXMLHttpRequestPrivate(aXHRPrivate),
+    mClientInfo(aClientInfo), mController(aController),
     mMozAnon(aMozAnon), mMozSystem(aMozSystem),
     mInnerEventStreamId(0), mInnerChannelId(0), mOutstandingSendCount(0),
     mOuterEventStreamId(0), mOuterChannelId(0), mOpenCount(0), mLastLoaded(0),
@@ -208,7 +210,7 @@ public:
   }
 
   void
-  Dispatch(Status aFailStatus, ErrorResult& aRv)
+  Dispatch(WorkerStatus aFailStatus, ErrorResult& aRv)
   {
     WorkerMainThreadRunnable::Dispatch(aFailStatus, aRv);
     if (NS_WARN_IF(aRv.Failed())) {
@@ -472,7 +474,7 @@ private:
   ~LoadStartDetectionRunnable()
   {
     AssertIsOnMainThread();
-    }
+  }
 };
 
 class EventRunnable final : public MainThreadProxyRunnable
@@ -868,9 +870,11 @@ Proxy::Init()
   mXHR = new XMLHttpRequestMainThread();
   mXHR->Construct(mWorkerPrivate->GetPrincipal(), global,
                   mWorkerPrivate->GetBaseURI(),
-                  mWorkerPrivate->GetLoadGroup());
+                  mWorkerPrivate->GetLoadGroup(),
+                  mWorkerPrivate->GetPerformanceStorage());
 
   mXHR->SetParameters(mMozAnon, mMozSystem);
+  mXHR->SetClientInfoAndController(mClientInfo, mController);
 
   ErrorResult rv;
   mXHRUpload = mXHR->GetUpload(rv);
@@ -1849,7 +1853,7 @@ XMLHttpRequestWorker::SendInternal(SendRunnable* aRunnable,
 }
 
 bool
-XMLHttpRequestWorker::Notify(Status aStatus)
+XMLHttpRequestWorker::Notify(WorkerStatus aStatus)
 {
   mWorkerPrivate->AssertIsOnWorkerThread();
 
@@ -1882,7 +1886,8 @@ XMLHttpRequestWorker::Open(const nsACString& aMethod,
     }
   }
   else {
-    mProxy = new Proxy(this, mMozAnon, mMozSystem);
+    mProxy = new Proxy(this, mWorkerPrivate->GetClientInfo(),
+                       mWorkerPrivate->GetController(), mMozAnon, mMozSystem);
   }
 
   mProxy->mOuterEventStreamId++;

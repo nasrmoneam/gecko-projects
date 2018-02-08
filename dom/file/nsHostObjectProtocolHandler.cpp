@@ -24,6 +24,7 @@
 #include "nsError.h"
 #include "nsHostObjectURI.h"
 #include "nsIAsyncShutdown.h"
+#include "nsIException.h" // for nsIStackFrame
 #include "nsIMemoryReporter.h"
 #include "nsIPrincipal.h"
 #include "nsIUUIDGenerator.h"
@@ -356,10 +357,9 @@ class BlobURLsReporter final : public nsIMemoryReporter
 
     for (uint32_t i = 0; frame; ++i) {
       nsString fileNameUTF16;
-      int32_t lineNumber = 0;
-
       frame->GetFilename(cx, fileNameUTF16);
-      frame->GetLineNumber(cx, &lineNumber);
+
+      int32_t lineNumber = frame->GetLineNumber(cx);
 
       if (!fileNameUTF16.IsEmpty()) {
         NS_ConvertUTF16toUTF8 fileName(fileNameUTF16);
@@ -386,10 +386,7 @@ class BlobURLsReporter final : public nsIMemoryReporter
         stack += ")/";
       }
 
-      nsCOMPtr<nsIStackFrame> caller;
-      nsresult rv = frame->GetCaller(cx, getter_AddRefs(caller));
-      NS_ENSURE_SUCCESS_VOID(rv);
-      caller.swap(frame);
+      frame = frame->GetCaller(cx);
     }
   }
 
@@ -892,15 +889,20 @@ nsHostObjectProtocolHandler::NewURI(const nsACString& aSpec,
 
   DataInfo* info = GetDataInfo(aSpec);
 
-  RefPtr<nsHostObjectURI> uri;
+  nsCOMPtr<nsIPrincipal> principal;
+  RefPtr<mozilla::dom::BlobImpl> blob;
   if (info && info->mObjectType == DataInfo::eBlobImpl) {
     MOZ_ASSERT(info->mBlobImpl);
-    uri = new nsHostObjectURI(info->mPrincipal, info->mBlobImpl);
-  } else {
-    uri = new nsHostObjectURI(nullptr, nullptr);
+    principal = info->mPrincipal;
+    blob = info->mBlobImpl;
   }
 
-  rv = uri->SetSpec(aSpec);
+  nsCOMPtr<nsIURI> uri;
+  rv = NS_MutateURI(new nsHostObjectURI::Mutator())
+         .SetSpec(aSpec)
+         .Apply<nsIBlobURIMutator>(&nsIBlobURIMutator::SetBlobImpl, blob)
+         .Apply<nsIPrincipalURIMutator>(&nsIPrincipalURIMutator::SetPrincipal, principal)
+         .Finalize(uri);
   NS_ENSURE_SUCCESS(rv, rv);
 
   NS_TryToSetImmutable(uri);
@@ -1120,21 +1122,23 @@ nsFontTableProtocolHandler::NewURI(const nsACString& aSpec,
                                    nsIURI *aBaseURI,
                                    nsIURI **aResult)
 {
-  RefPtr<nsIURI> uri;
+  nsresult rv;
+  nsCOMPtr<nsIURI> uri;
 
   // Either you got here via a ref or a fonttable: uri
   if (aSpec.Length() && aSpec.CharAt(0) == '#') {
-    nsresult rv = aBaseURI->CloneIgnoringRef(getter_AddRefs(uri));
+    rv = NS_MutateURI(aBaseURI)
+           .SetRef(aSpec)
+           .Finalize(uri);
     NS_ENSURE_SUCCESS(rv, rv);
-
-    uri->SetRef(aSpec);
   } else {
     // Relative URIs (other than #ref) are not meaningful within the
     // fonttable: scheme.
     // If aSpec is a relative URI -other- than a bare #ref,
     // this will leave uri empty, and we'll return a failure code below.
-    uri = new mozilla::net::nsSimpleURI();
-    nsresult rv = uri->SetSpec(aSpec);
+    rv = NS_MutateURI(new mozilla::net::nsSimpleURI::Mutator())
+           .SetSpec(aSpec)
+           .Finalize(uri);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 

@@ -6,11 +6,11 @@
 
 #include "FetchStream.h"
 #include "mozilla/dom/DOMException.h"
+#include "mozilla/dom/WorkerCommon.h"
+#include "mozilla/dom/WorkerPrivate.h"
 #include "nsITransport.h"
 #include "nsIStreamTransportService.h"
 #include "nsProxyRelease.h"
-#include "WorkerPrivate.h"
-#include "Workers.h"
 
 #define FETCH_STREAM_FLAG 0
 
@@ -19,8 +19,6 @@ static NS_DEFINE_CID(kStreamTransportServiceCID,
 
 namespace mozilla {
 namespace dom {
-
-using namespace workers;
 
 namespace {
 
@@ -34,7 +32,7 @@ public:
     , mWasNotified(false)
   {}
 
-  bool Notify(Status aStatus) override
+  bool Notify(WorkerStatus aStatus) override
   {
     if (!mWasNotified) {
       mWasNotified = true;

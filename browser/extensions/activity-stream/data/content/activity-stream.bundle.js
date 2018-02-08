@@ -106,7 +106,7 @@ const actionTypes = {};
 /* harmony export (immutable) */ __webpack_exports__["b"] = actionTypes;
 
 
-for (const type of ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "DELETE_HISTORY_URL_CONFIRM", "DIALOG_CANCEL", "DIALOG_OPEN", "DISABLE_ONBOARDING", "INIT", "MIGRATION_CANCEL", "MIGRATION_COMPLETED", "MIGRATION_START", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_REHYDRATED", "NEW_TAB_STATE_REQUEST", "NEW_TAB_UNLOAD", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PAGE_PRERENDERED", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINKS_DELETED", "PLACES_LINK_BLOCKED", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "RICH_ICON_MISSING", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_DISABLE", "SECTION_ENABLE", "SECTION_OPTIONS_CHANGED", "SECTION_REGISTER", "SECTION_UPDATE", "SECTION_UPDATE_CARD", "SETTINGS_CLOSE", "SETTINGS_OPEN", "SET_PREF", "SHOW_FIREFOX_ACCOUNTS", "SNIPPETS_BLOCKLIST_UPDATED", "SNIPPETS_DATA", "SNIPPETS_RESET", "SNIPPET_BLOCKED", "SYSTEM_TICK", "TELEMETRY_IMPRESSION_STATS", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_CANCEL_EDIT", "TOP_SITES_EDIT", "TOP_SITES_INSERT", "TOP_SITES_PIN", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "UNINIT"]) {
+for (const type of ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "DELETE_HISTORY_URL_CONFIRM", "DIALOG_CANCEL", "DIALOG_OPEN", "DISABLE_ONBOARDING", "INIT", "MIGRATION_CANCEL", "MIGRATION_COMPLETED", "MIGRATION_START", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_REHYDRATED", "NEW_TAB_STATE_REQUEST", "NEW_TAB_UNLOAD", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PAGE_PRERENDERED", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINKS_DELETED", "PLACES_LINK_BLOCKED", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "RICH_ICON_MISSING", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_DISABLE", "SECTION_ENABLE", "SECTION_OPTIONS_CHANGED", "SECTION_REGISTER", "SECTION_UPDATE", "SECTION_UPDATE_CARD", "SETTINGS_CLOSE", "SETTINGS_OPEN", "SET_PREF", "SHOW_FIREFOX_ACCOUNTS", "SNIPPETS_BLOCKLIST_UPDATED", "SNIPPETS_DATA", "SNIPPETS_RESET", "SNIPPET_BLOCKED", "SYSTEM_TICK", "TELEMETRY_IMPRESSION_STATS", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_CANCEL_EDIT", "TOP_SITES_EDIT", "TOP_SITES_INSERT", "TOP_SITES_PIN", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "UNINIT", "WEBEXT_CLICK", "WEBEXT_DISMISS"]) {
   actionTypes[type] = type;
 }
 
@@ -119,7 +119,7 @@ function _RouteMessage(action, options) {
   }
   // For each of these fields, if they are passed as an option,
   // add them to the action. If they are not defined, remove them.
-  ["from", "to", "toTarget", "fromTarget", "skipOrigin"].forEach(o => {
+  ["from", "to", "toTarget", "fromTarget", "skipMain", "skipLocal"].forEach(o => {
     if (typeof options[o] !== "undefined") {
       meta[o] = options[o];
     } else if (meta[o]) {
@@ -130,23 +130,37 @@ function _RouteMessage(action, options) {
 }
 
 /**
- * SendToMain - Creates a message that will be sent to the Main process.
+ * AlsoToMain - Creates a message that will be dispatched locally and also sent to the Main process.
+ *
+ * @param  {object} action Any redux action (required)
+ * @param  {object} options
+ * @param  {bool}   skipLocal Used by OnlyToMain to skip the main reducer
+ * @param  {string} fromTarget The id of the content port from which the action originated. (optional)
+ * @return {object} An action with added .meta properties
+ */
+function AlsoToMain(action, fromTarget, skipLocal) {
+  return _RouteMessage(action, {
+    from: CONTENT_MESSAGE_TYPE,
+    to: MAIN_MESSAGE_TYPE,
+    fromTarget,
+    skipLocal
+  });
+}
+
+/**
+ * OnlyToMain - Creates a message that will be sent to the Main process and skip the local reducer.
  *
  * @param  {object} action Any redux action (required)
  * @param  {object} options
  * @param  {string} fromTarget The id of the content port from which the action originated. (optional)
  * @return {object} An action with added .meta properties
  */
-function SendToMain(action, fromTarget) {
-  return _RouteMessage(action, {
-    from: CONTENT_MESSAGE_TYPE,
-    to: MAIN_MESSAGE_TYPE,
-    fromTarget
-  });
+function OnlyToMain(action, fromTarget) {
+  return AlsoToMain(action, fromTarget, true);
 }
 
 /**
- * BroadcastToContent - Creates a message that will be sent to ALL content processes.
+ * BroadcastToContent - Creates a message that will be dispatched to main and sent to ALL content processes.
  *
  * @param  {object} action Any redux action (required)
  * @return {object} An action with added .meta properties
@@ -159,30 +173,45 @@ function BroadcastToContent(action) {
 }
 
 /**
- * SendToContent - Creates a message that will be sent to a particular Content process.
+ * AlsoToOneContent - Creates a message that will be will be dispatched to the main store
+ *                    and also sent to a particular Content process.
+ *
+ * @param  {object} action Any redux action (required)
+ * @param  {string} target The id of a content port
+ * @param  {bool} skipMain Used by OnlyToOneContent to skip the main process
+ * @return {object} An action with added .meta properties
+ */
+function AlsoToOneContent(action, target, skipMain) {
+  if (!target) {
+    throw new Error("You must provide a target ID as the second parameter of AlsoToOneContent. If you want to send to all content processes, use BroadcastToContent");
+  }
+  return _RouteMessage(action, {
+    from: MAIN_MESSAGE_TYPE,
+    to: CONTENT_MESSAGE_TYPE,
+    toTarget: target,
+    skipMain
+  });
+}
+
+/**
+ * OnlyToOneContent - Creates a message that will be sent to a particular Content process
+ *                    and skip the main reducer.
  *
  * @param  {object} action Any redux action (required)
  * @param  {string} target The id of a content port
  * @return {object} An action with added .meta properties
  */
-function SendToContent(action, target) {
-  if (!target) {
-    throw new Error("You must provide a target ID as the second parameter of SendToContent. If you want to send to all content processes, use BroadcastToContent");
-  }
-  return _RouteMessage(action, {
-    from: MAIN_MESSAGE_TYPE,
-    to: CONTENT_MESSAGE_TYPE,
-    toTarget: target
-  });
+function OnlyToOneContent(action, target) {
+  return AlsoToOneContent(action, target, true);
 }
 
 /**
- * SendToPreloaded - Creates a message that will be sent to the preloaded tab.
+ * AlsoToPreloaded - Creates a message that dispatched to the main reducer and also sent to the preloaded tab.
  *
  * @param  {object} action Any redux action (required)
  * @return {object} An action with added .meta properties
  */
-function SendToPreloaded(action) {
+function AlsoToPreloaded(action) {
   return _RouteMessage(action, {
     from: MAIN_MESSAGE_TYPE,
     to: PRELOAD_MESSAGE_TYPE
@@ -194,10 +223,10 @@ function SendToPreloaded(action) {
  *                   be sent from the UI during a user session.
  *
  * @param  {object} data Fields to include in the ping (source, etc.)
- * @return {object} An SendToMain action
+ * @return {object} An AlsoToMain action
  */
 function UserEvent(data) {
-  return SendToMain({
+  return AlsoToMain({
     type: actionTypes.TELEMETRY_USER_EVENT,
     data
   });
@@ -208,14 +237,14 @@ function UserEvent(data) {
  *
  * @param  {object} data Fields to include in the ping (value, etc.)
  * @param  {int} importContext (For testing) Override the import context for testing.
- * @return {object} An action. For UI code, a SendToMain action.
+ * @return {object} An action. For UI code, a AlsoToMain action.
  */
 function UndesiredEvent(data, importContext = globalImportContext) {
   const action = {
     type: actionTypes.TELEMETRY_UNDESIRED_EVENT,
     data
   };
-  return importContext === UI_CODE ? SendToMain(action) : action;
+  return importContext === UI_CODE ? AlsoToMain(action) : action;
 }
 
 /**
@@ -223,14 +252,14 @@ function UndesiredEvent(data, importContext = globalImportContext) {
  *
  * @param  {object} data Fields to include in the ping (value, etc.)
  * @param  {int} importContext (For testing) Override the import context for testing.
- * @return {object} An action. For UI code, a SendToMain action.
+ * @return {object} An action. For UI code, a AlsoToMain action.
  */
 function PerfEvent(data, importContext = globalImportContext) {
   const action = {
     type: actionTypes.TELEMETRY_PERFORMANCE_EVENT,
     data
   };
-  return importContext === UI_CODE ? SendToMain(action) : action;
+  return importContext === UI_CODE ? AlsoToMain(action) : action;
 }
 
 /**
@@ -238,19 +267,27 @@ function PerfEvent(data, importContext = globalImportContext) {
  *
  * @param  {object} data Fields to include in the ping
  * @param  {int} importContext (For testing) Override the import context for testing.
- * #return {object} An action. For UI code, a SendToMain action.
+ * #return {object} An action. For UI code, a AlsoToMain action.
  */
 function ImpressionStats(data, importContext = globalImportContext) {
   const action = {
     type: actionTypes.TELEMETRY_IMPRESSION_STATS,
     data
   };
-  return importContext === UI_CODE ? SendToMain(action) : action;
+  return importContext === UI_CODE ? AlsoToMain(action) : action;
 }
 
 function SetPref(name, value, importContext = globalImportContext) {
   const action = { type: actionTypes.SET_PREF, data: { name, value } };
-  return importContext === UI_CODE ? SendToMain(action) : action;
+  return importContext === UI_CODE ? AlsoToMain(action) : action;
+}
+
+function WebExtEvent(type, data, importContext = globalImportContext) {
+  if (!data || !data.source) {
+    throw new Error("WebExtEvent actions should include a property \"source\", the id of the webextension that should receive the event.");
+  }
+  const action = { type, data };
+  return importContext === UI_CODE ? AlsoToMain(action) : action;
 }
 
 var actionCreators = {
@@ -259,10 +296,13 @@ var actionCreators = {
   UndesiredEvent,
   PerfEvent,
   ImpressionStats,
-  SendToContent,
-  SendToMain,
-  SendToPreloaded,
-  SetPref
+  AlsoToOneContent,
+  OnlyToOneContent,
+  AlsoToMain,
+  OnlyToMain,
+  AlsoToPreloaded,
+  SetPref,
+  WebExtEvent
 };
 
 // These are helpers to test for certain kinds of actions
@@ -283,7 +323,7 @@ var actionUtils = {
     }
     return false;
   },
-  isSendToContent(action) {
+  isSendToOneContent(action) {
     if (!action.meta) {
       return false;
     }
@@ -399,7 +439,7 @@ class Dedupe {
 }
 // CONCATENATED MODULE: ./system-addon/common/Reducers.jsm
 /* unused harmony export insertPinned */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "c", function() { return reducers; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return reducers; });
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -407,11 +447,11 @@ class Dedupe {
 
 
 
-const TOP_SITES_DEFAULT_LENGTH = 6;
-/* harmony export (immutable) */ __webpack_exports__["a"] = TOP_SITES_DEFAULT_LENGTH;
+const TOP_SITES_DEFAULT_ROWS = 2;
+/* unused harmony export TOP_SITES_DEFAULT_ROWS */
 
-const TOP_SITES_SHOWMORE_LENGTH = 12;
-/* harmony export (immutable) */ __webpack_exports__["b"] = TOP_SITES_SHOWMORE_LENGTH;
+const TOP_SITES_MAX_SITES_PER_ROW = 6;
+/* harmony export (immutable) */ __webpack_exports__["a"] = TOP_SITES_MAX_SITES_PER_ROW;
 
 
 
@@ -430,12 +470,8 @@ const INITIAL_STATE = {
     initialized: false,
     // The history (and possibly default) links
     rows: [],
-    // Used in content only to dispatch action from
-    // context menu to TopSitesEdit.
-    editForm: {
-      visible: false,
-      index: -1
-    }
+    // Used in content only to dispatch action to TopSiteForm.
+    editForm: null
   },
   Prefs: {
     initialized: false,
@@ -507,9 +543,9 @@ function TopSites(prevState = INITIAL_STATE.TopSites, action) {
       }
       return Object.assign({}, prevState, { initialized: true, rows: action.data });
     case Actions["b" /* actionTypes */].TOP_SITES_EDIT:
-      return Object.assign({}, prevState, { editForm: { visible: true, index: action.data.index } });
+      return Object.assign({}, prevState, { editForm: { index: action.data.index } });
     case Actions["b" /* actionTypes */].TOP_SITES_CANCEL_EDIT:
-      return Object.assign({}, prevState, { editForm: { visible: false } });
+      return Object.assign({}, prevState, { editForm: null });
     case Actions["b" /* actionTypes */].SCREENSHOT_UPDATED:
       newRows = prevState.rows.map(row => {
         if (row && row.url === action.data.url) {
@@ -755,12 +791,15 @@ class ContextMenu_ContextMenu extends external__React__default.a.PureComponent {
     super(props);
     this.hideContext = this.hideContext.bind(this);
   }
+
   hideContext() {
     this.props.onUpdate(false);
   }
+
   componentWillMount() {
     this.hideContext();
   }
+
   componentDidUpdate(prevProps) {
     if (this.props.visible && !prevProps.visible) {
       setTimeout(() => {
@@ -771,9 +810,11 @@ class ContextMenu_ContextMenu extends external__React__default.a.PureComponent {
       window.removeEventListener("click", this.hideContext);
     }
   }
+
   componentWillUnmount() {
     window.removeEventListener("click", this.hideContext);
   }
+
   render() {
     return external__React__default.a.createElement(
       "span",
@@ -793,10 +834,12 @@ class ContextMenu_ContextMenuItem extends external__React__default.a.PureCompone
     this.onClick = this.onClick.bind(this);
     this.onKeyDown = this.onKeyDown.bind(this);
   }
+
   onClick() {
     this.props.hideContext();
     this.props.option.onClick();
   }
+
   onKeyDown(event) {
     const { option } = this.props;
     switch (event.key) {
@@ -814,6 +857,7 @@ class ContextMenu_ContextMenuItem extends external__React__default.a.PureCompone
         break;
     }
   }
+
   render() {
     const { option } = this.props;
     return external__React__default.a.createElement(
@@ -845,7 +889,7 @@ const LinkMenuOptions = {
   RemoveBookmark: site => ({
     id: "menu_action_remove_bookmark",
     icon: "bookmark-added",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].DELETE_BOOKMARK_BY_ID,
       data: site.bookmarkGuid
     }),
@@ -854,7 +898,7 @@ const LinkMenuOptions = {
   AddBookmark: site => ({
     id: "menu_action_bookmark",
     icon: "bookmark-hollow",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].BOOKMARK_URL,
       data: { url: site.url, title: site.title, type: site.type }
     }),
@@ -863,7 +907,7 @@ const LinkMenuOptions = {
   OpenInNewWindow: site => ({
     id: "menu_action_open_new_window",
     icon: "new-window",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].OPEN_NEW_WINDOW,
       data: { url: site.url, referrer: site.referrer }
     }),
@@ -872,7 +916,7 @@ const LinkMenuOptions = {
   OpenInPrivateWindow: site => ({
     id: "menu_action_open_private_window",
     icon: "new-window-private",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].OPEN_PRIVATE_WINDOW,
       data: { url: site.url, referrer: site.referrer }
     }),
@@ -881,7 +925,7 @@ const LinkMenuOptions = {
   BlockUrl: (site, index, eventSource) => ({
     id: "menu_action_dismiss",
     icon: "dismiss",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].BLOCK_URL,
       data: site.url
     }),
@@ -892,13 +936,26 @@ const LinkMenuOptions = {
     }),
     userEvent: "BLOCK"
   }),
+
+  // This is an option for web extentions which will result in remove items from
+  // memory and notify the web extenion, rather than using the built-in block list.
+  WebExtDismiss: (site, index, eventSource) => ({
+    id: "menu_action_webext_dismiss",
+    string_id: "menu_action_dismiss",
+    icon: "dismiss",
+    action: Actions["a" /* actionCreators */].WebExtEvent(Actions["b" /* actionTypes */].WEBEXT_DISMISS, {
+      source: eventSource,
+      url: site.url,
+      action_position: index
+    })
+  }),
   DeleteUrl: site => ({
     id: "menu_action_delete",
     icon: "delete",
     action: {
       type: Actions["b" /* actionTypes */].DIALOG_OPEN,
       data: {
-        onConfirm: [Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].DELETE_HISTORY_URL, data: { url: site.url, forceBlock: site.bookmarkGuid } }), Actions["a" /* actionCreators */].UserEvent({ event: "DELETE" })],
+        onConfirm: [Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].DELETE_HISTORY_URL, data: { url: site.url, forceBlock: site.bookmarkGuid } }), Actions["a" /* actionCreators */].UserEvent({ event: "DELETE" })],
         body_string_id: ["confirm_history_delete_p1", "confirm_history_delete_notice_p2"],
         confirm_button_string_id: "menu_action_delete",
         cancel_button_string_id: "topsites_form_cancel_button",
@@ -910,7 +967,7 @@ const LinkMenuOptions = {
   PinTopSite: (site, index) => ({
     id: "menu_action_pin",
     icon: "pin",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].TOP_SITES_PIN,
       data: { site: { url: site.url }, index }
     }),
@@ -919,7 +976,7 @@ const LinkMenuOptions = {
   UnpinTopSite: site => ({
     id: "menu_action_unpin",
     icon: "unpin",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].TOP_SITES_UNPIN,
       data: { site: { url: site.url } }
     }),
@@ -928,7 +985,7 @@ const LinkMenuOptions = {
   SaveToPocket: (site, index, eventSource) => ({
     id: "menu_action_save_to_pocket",
     icon: "pocket",
-    action: Actions["a" /* actionCreators */].SendToMain({
+    action: Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].SAVE_TO_POCKET,
       data: { site: { url: site.url, title: site.title } }
     }),
@@ -961,16 +1018,16 @@ const DEFAULT_SITE_MENU_OPTIONS = ["CheckPinTopSite", "EditTopSite", "Separator"
 
 class LinkMenu__LinkMenu extends external__React__default.a.PureComponent {
   getOptions() {
-    const props = this.props;
+    const { props } = this;
     const { site, index, source } = props;
 
     // Handle special case of default site
     const propOptions = !site.isDefault ? props.options : DEFAULT_SITE_MENU_OPTIONS;
 
     const options = propOptions.map(o => LinkMenuOptions[o](site, index, source)).map(option => {
-      const { action, impression, id, type, userEvent } = option;
+      const { action, impression, id, string_id, type, userEvent } = option;
       if (!type && id) {
-        option.label = props.intl.formatMessage(option);
+        option.label = props.intl.formatMessage({ id: string_id || id });
         option.onClick = () => {
           props.dispatch(action);
           if (userEvent) {
@@ -995,6 +1052,7 @@ class LinkMenu__LinkMenu extends external__React__default.a.PureComponent {
     options[options.length - 1].last = true;
     return options;
   }
+
   render() {
     return external__React__default.a.createElement(ContextMenu_ContextMenu, {
       visible: this.props.visible,
@@ -1057,20 +1115,24 @@ class Info extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.PureComponent {
       this.setState({ infoActive });
     }
   }
+
   onInfoEnter() {
     // We're getting focus or hover, so info state should be true if not yet.
     this._setInfoState(true);
   }
+
   onInfoLeave(event) {
     // We currently have an active (true) info state, so keep it true only if we
     // have a related event target that is contained "within" the current target
     // (section-info-option) as itself or a descendant. Set to false otherwise.
     this._setInfoState(event && event.relatedTarget && (event.relatedTarget === event.currentTarget || event.relatedTarget.compareDocumentPosition(event.currentTarget) & Node.DOCUMENT_POSITION_CONTAINS));
   }
+
   onManageClick() {
     this.props.dispatch({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SETTINGS_OPEN });
     this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].UserEvent({ event: "OPEN_NEWTAB_PREFS" }));
   }
+
   render() {
     const { infoOption, intl } = this.props;
     const infoOptionIconA11yAttrs = {
@@ -1141,7 +1203,7 @@ class Disclaimer extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.PureCompo
   }
 
   render() {
-    const disclaimer = this.props.disclaimer;
+    const { disclaimer } = this.props;
     return __WEBPACK_IMPORTED_MODULE_2_react___default.a.createElement(
       "div",
       { className: "section-disclaimer" },
@@ -1185,6 +1247,7 @@ class _CollapsibleSection extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.
   componentWillMount() {
     this.props.document.addEventListener(VISIBILITY_CHANGE_EVENT, this.enableOrDisableAnimation);
   }
+
   componentWillUpdate(nextProps) {
     // Check if we're about to go from expanded to collapsed
     if (!getCollapsed(this.props) && getCollapsed(nextProps)) {
@@ -1195,9 +1258,11 @@ class _CollapsibleSection extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.
       this.sectionBody.scrollHeight; // eslint-disable-line no-unused-expressions
     }
   }
+
   componentWillUnmount() {
     this.props.document.removeEventListener(VISIBILITY_CHANGE_EVENT, this.enableOrDisableAnimation);
   }
+
   enableOrDisableAnimation() {
     // Only animate the collapse/expand for visible tabs.
     const visible = this.props.document.visibilityState === VISIBLE;
@@ -1205,6 +1270,7 @@ class _CollapsibleSection extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.
       this.setState({ enableAnimation: visible });
     }
   }
+
   _setInfoState(nextActive) {
     // Take a truthy value to conditionally change the infoActive state.
     const infoActive = !!nextActive;
@@ -1212,19 +1278,23 @@ class _CollapsibleSection extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.
       this.setState({ infoActive });
     }
   }
+
   onBodyMount(node) {
     this.sectionBody = node;
   }
+
   onInfoEnter() {
     // We're getting focus or hover, so info state should be true if not yet.
     this._setInfoState(true);
   }
+
   onInfoLeave(event) {
     // We currently have an active (true) info state, so keep it true only if we
     // have a related event target that is contained "within" the current target
     // (section-info-option) as itself or a descendant. Set to false otherwise.
     this._setInfoState(event && event.relatedTarget && (event.relatedTarget === event.currentTarget || event.relatedTarget.compareDocumentPosition(event.currentTarget) & Node.DOCUMENT_POSITION_CONTAINS));
   }
+
   onHeaderClick() {
     // Get the current height of the body so max-height transitions can work
     this.setState({
@@ -1233,19 +1303,22 @@ class _CollapsibleSection extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.
     });
     this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SetPref(this.props.prefName, !getCollapsed(this.props)));
   }
+
   onTransitionEnd(event) {
     // Only update the animating state for our own transition (not a child's)
     if (event.target === event.currentTarget) {
       this.setState({ isAnimating: false });
     }
   }
+
   renderIcon() {
-    const icon = this.props.icon;
+    const { icon } = this.props;
     if (icon && icon.startsWith("moz-extension://")) {
       return __WEBPACK_IMPORTED_MODULE_2_react___default.a.createElement("span", { className: "icon icon-small-spacer", style: { backgroundImage: `url('${icon}')` } });
     }
     return __WEBPACK_IMPORTED_MODULE_2_react___default.a.createElement("span", { className: `icon icon-small-spacer icon-${icon || "webextension"}` });
   }
+
   render() {
     const isCollapsible = this.props.prefName in this.props.Prefs.values;
     const isCollapsed = getCollapsed(this.props);
@@ -1430,7 +1503,7 @@ class ComponentPerfTimer extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.C
       const firstRenderKey = `${this.props.id}_first_render_ts`;
       // value has to be Int32.
       const value = parseInt(this.perfSvc.getMostRecentAbsMarkStartByName(dataReadyKey) - this.perfSvc.getMostRecentAbsMarkStartByName(firstRenderKey), 10);
-      this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({
+      this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].OnlyToMain({
         type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SAVE_SESSION_PERF_DATA,
         // highlights_data_late_by_ms, topsites_data_late_by_ms.
         data: { [`${this.props.id}_data_late_by_ms`]: value }
@@ -1455,7 +1528,7 @@ class ComponentPerfTimer extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.C
       const data = {};
       data[key] = this.perfSvc.getMostRecentAbsMarkStartByName(key);
 
-      this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({
+      this.props.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].OnlyToMain({
         type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SAVE_SESSION_PERF_DATA,
         data
       }));
@@ -1488,11 +1561,9 @@ class ComponentPerfTimer extends __WEBPACK_IMPORTED_MODULE_2_react___default.a.C
 
 
 /* istanbul ignore if */
-// Note: normally we would just feature detect Components.utils here, but
-// unfortunately that throws an ugly warning in content if we do.
 
-if (typeof Window === "undefined" && typeof Components !== "undefined" && Components.utils) {
-  Components.utils.import("resource://gre/modules/Services.jsm");
+if (typeof ChromeUtils !== "undefined") {
+  ChromeUtils.import("resource://gre/modules/Services.jsm");
 }
 
 let usablePerfObj;
@@ -1641,7 +1712,7 @@ Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
 
 
 
-const store = Object(__WEBPACK_IMPORTED_MODULE_4_content_src_lib_init_store__["a" /* initStore */])(__WEBPACK_IMPORTED_MODULE_8_common_Reducers_jsm__["c" /* reducers */], global.gActivityStreamPrerenderedState);
+const store = Object(__WEBPACK_IMPORTED_MODULE_4_content_src_lib_init_store__["a" /* initStore */])(__WEBPACK_IMPORTED_MODULE_8_common_Reducers_jsm__["b" /* reducers */], global.gActivityStreamPrerenderedState);
 
 new __WEBPACK_IMPORTED_MODULE_3_content_src_lib_detect_user_session_start__["a" /* DetectUserSessionStart */](store).sendEventOrAddListener();
 
@@ -1649,7 +1720,7 @@ new __WEBPACK_IMPORTED_MODULE_3_content_src_lib_detect_user_session_start__["a" 
 // to request state rehydration (see Base.jsx). If we are NOT in a prerendered state,
 // we can request it immedately.
 if (!global.gActivityStreamPrerenderedState) {
-  store.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
+  store.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
 }
 
 __WEBPACK_IMPORTED_MODULE_7_react_dom___default.a.render(__WEBPACK_IMPORTED_MODULE_6_react___default.a.createElement(
@@ -1728,20 +1799,20 @@ class SnippetsMap extends Map {
     if (!id) {
       return;
     }
-    let blockList = this.blockList;
+    const { blockList } = this;
     if (!blockList.includes(id)) {
       blockList.push(id);
-      this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SNIPPETS_BLOCKLIST_UPDATED, data: blockList }));
+      this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SNIPPETS_BLOCKLIST_UPDATED, data: blockList }));
       await this.set("blockList", blockList);
     }
   }
 
   disableOnboarding() {
-    this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].DISABLE_ONBOARDING }));
+    this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].DISABLE_ONBOARDING }));
   }
 
   showFirefoxAccounts() {
-    this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SHOW_FIREFOX_ACCOUNTS }));
+    this._dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SHOW_FIREFOX_ACCOUNTS }));
   }
 
   /**
@@ -2077,7 +2148,7 @@ var external__React__default = /*#__PURE__*/__webpack_require__.n(external__Reac
  * data: {
  *   // Any sort of data needed to be passed around by actions.
  *   payload: site.url,
- *   // Primary button SendToMain action.
+ *   // Primary button AlsoToMain action.
  *   action: "DELETE_HISTORY_URL",
  *   // Primary button USerEvent action.
  *   userEvent: "DELETE",
@@ -2179,13 +2250,14 @@ class ManualMigration__ManualMigration extends external__React__default.a.PureCo
     this.onLaunchTour = this.onLaunchTour.bind(this);
     this.onCancelTour = this.onCancelTour.bind(this);
   }
+
   onLaunchTour() {
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].MIGRATION_START }));
+    this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].MIGRATION_START }));
     this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({ event: Actions["b" /* actionTypes */].MIGRATION_START }));
   }
 
   onCancelTour() {
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].MIGRATION_CANCEL }));
+    this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].MIGRATION_CANCEL }));
     this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({ event: Actions["b" /* actionTypes */].MIGRATION_CANCEL }));
   }
 
@@ -2218,11 +2290,7 @@ class ManualMigration__ManualMigration extends external__React__default.a.PureCo
 }
 
 const ManualMigration = Object(external__ReactRedux_["connect"])()(ManualMigration__ManualMigration);
-// EXTERNAL MODULE: ./system-addon/common/Reducers.jsm + 1 modules
-var Reducers = __webpack_require__(5);
-
 // CONCATENATED MODULE: ./system-addon/content-src/components/PreferencesPane/PreferencesPane.jsx
-
 
 
 
@@ -2264,6 +2332,7 @@ class PreferencesPane__PreferencesPane extends external__React__default.a.PureCo
     this.togglePane = this.togglePane.bind(this);
     this.onWrapperMount = this.onWrapperMount.bind(this);
   }
+
   componentDidUpdate(prevProps, prevState) {
     if (prevProps.PreferencesPane.visible !== this.props.PreferencesPane.visible) {
       // While the sidebar is open, listen for all document clicks.
@@ -2274,30 +2343,32 @@ class PreferencesPane__PreferencesPane extends external__React__default.a.PureCo
       }
     }
   }
+
   isSidebarOpen() {
     return this.props.PreferencesPane.visible;
   }
+
   handleClickOutside(event) {
     // if we are showing the sidebar and there is a click outside, close it.
     if (this.isSidebarOpen() && !this.wrapper.contains(event.target)) {
       this.togglePane();
     }
   }
-  handlePrefChange(event) {
-    const target = event.target;
-    const { name, checked } = target;
+
+  handlePrefChange({ target: { name, checked } }) {
     let value = checked;
-    if (name === "topSitesCount") {
-      value = checked ? Reducers["b" /* TOP_SITES_SHOWMORE_LENGTH */] : Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */];
+    if (name === "topSitesRows") {
+      value = checked ? 2 : 1;
     }
     this.props.dispatch(Actions["a" /* actionCreators */].SetPref(name, value));
   }
-  handleSectionChange(event) {
-    const target = event.target;
+
+  handleSectionChange({ target }) {
     const id = target.name;
     const type = target.checked ? Actions["b" /* actionTypes */].SECTION_ENABLE : Actions["b" /* actionTypes */].SECTION_DISABLE;
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type, data: id }));
+    this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type, data: id }));
   }
+
   togglePane() {
     if (this.isSidebarOpen()) {
       this.props.dispatch({ type: Actions["b" /* actionTypes */].SETTINGS_CLOSE });
@@ -2307,11 +2378,13 @@ class PreferencesPane__PreferencesPane extends external__React__default.a.PureCo
       this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({ event: "OPEN_NEWTAB_PREFS" }));
     }
   }
+
   onWrapperMount(wrapper) {
     this.wrapper = wrapper;
   }
+
   render() {
-    const props = this.props;
+    const { props } = this;
     const prefs = props.Prefs.values;
     const sections = props.Sections;
     const isVisible = this.isSidebarOpen();
@@ -2364,9 +2437,9 @@ class PreferencesPane__PreferencesPane extends external__React__default.a.PureCo
                 descString: { id: "settings_pane_topsites_body" } },
               external__React__default.a.createElement(PreferencesInput, {
                 className: "showMoreTopSites",
-                prefName: "topSitesCount",
+                prefName: "topSitesRows",
                 disabled: !prefs.showTopSites,
-                value: prefs.topSitesCount !== Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */],
+                value: prefs.topSitesRows === 2,
                 onChange: this.handlePrefChange,
                 titleString: { id: "settings_pane_topsites_options_showmore" },
                 labelClassName: "icon icon-topsites" })
@@ -2469,7 +2542,7 @@ var PrerenderData = new _PrerenderData({
     "migrationExpired": true,
     "showTopSites": true,
     "showSearch": true,
-    "topSitesCount": 12,
+    "topSitesRows": 2,
     "collapseTopSites": false,
     "section.highlights.collapsed": false,
     "section.topstories.collapsed": false,
@@ -2482,7 +2555,7 @@ var PrerenderData = new _PrerenderData({
   // too different for the prerendered version to be used. Unfortunately, this
   // will result in users who have modified some of their preferences not being
   // able to get the benefits of prerendering.
-  validation: ["showTopSites", "showSearch", "topSitesCount", "collapseTopSites", "section.highlights.collapsed", "section.topstories.collapsed",
+  validation: ["showTopSites", "showSearch", "topSitesRows", "collapseTopSites", "section.highlights.collapsed", "section.topstories.collapsed",
   // This means if either of these are set to their default values,
   // prerendering can be used.
   { oneOf: ["feeds.section.topstories", "feeds.section.highlights"] }],
@@ -2526,12 +2599,15 @@ class Search__Search extends external__React__default.a.PureComponent {
       this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({ event: "SEARCH" }));
     }
   }
+
   onClick(event) {
     window.gContentSearchController.search(event);
   }
+
   componentWillUnmount() {
     delete window.gContentSearchController;
   }
+
   onInputMount(input) {
     if (input) {
       // The "healthReportKey" and needs to be "newtab" or "abouthome" so that
@@ -2618,11 +2694,180 @@ var CollapsibleSection = __webpack_require__(7);
 // EXTERNAL MODULE: ./system-addon/content-src/components/ComponentPerfTimer/ComponentPerfTimer.jsx
 var ComponentPerfTimer = __webpack_require__(8);
 
+// EXTERNAL MODULE: ./system-addon/common/Reducers.jsm + 1 modules
+var Reducers = __webpack_require__(5);
+
+// CONCATENATED MODULE: ./system-addon/content-src/components/TopSites/TopSiteForm.jsx
+
+
+
+
+
+class TopSiteForm_TopSiteForm extends external__React__default.a.PureComponent {
+  constructor(props) {
+    super(props);
+    const { site } = props;
+    this.state = {
+      label: site ? site.label || site.hostname : "",
+      url: site ? site.url : "",
+      validationError: false
+    };
+    this.onLabelChange = this.onLabelChange.bind(this);
+    this.onUrlChange = this.onUrlChange.bind(this);
+    this.onCancelButtonClick = this.onCancelButtonClick.bind(this);
+    this.onDoneButtonClick = this.onDoneButtonClick.bind(this);
+    this.onUrlInputMount = this.onUrlInputMount.bind(this);
+  }
+
+  onLabelChange(event) {
+    this.resetValidation();
+    this.setState({ "label": event.target.value });
+  }
+
+  onUrlChange(event) {
+    this.resetValidation();
+    this.setState({ "url": event.target.value });
+  }
+
+  onCancelButtonClick(ev) {
+    ev.preventDefault();
+    this.props.onClose();
+  }
+
+  onDoneButtonClick(ev) {
+    ev.preventDefault();
+
+    if (this.validateForm()) {
+      const site = { url: this.cleanUrl() };
+      const { index } = this.props;
+      if (this.state.label !== "") {
+        site.label = this.state.label;
+      }
+
+      this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({
+        type: Actions["b" /* actionTypes */].TOP_SITES_PIN,
+        data: { site, index }
+      }));
+      this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
+        source: TOP_SITES_SOURCE,
+        event: "TOP_SITES_EDIT",
+        action_position: index
+      }));
+
+      this.props.onClose();
+    }
+  }
+
+  cleanUrl() {
+    let { url } = this.state;
+    // If we are missing a protocol, prepend http://
+    if (!url.startsWith("http:") && !url.startsWith("https:")) {
+      url = `http://${url}`;
+    }
+    return url;
+  }
+
+  resetValidation() {
+    if (this.state.validationError) {
+      this.setState({ validationError: false });
+    }
+  }
+
+  validateUrl() {
+    try {
+      return !!new URL(this.cleanUrl());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  validateForm() {
+    this.resetValidation();
+    // Only the URL is required and must be valid.
+    if (!this.state.url || !this.validateUrl()) {
+      this.setState({ validationError: true });
+      this.inputUrl.focus();
+      return false;
+    }
+    return true;
+  }
+
+  onUrlInputMount(input) {
+    this.inputUrl = input;
+  }
+
+  render() {
+    // For UI purposes, editing without an existing link is "add"
+    const showAsAdd = !this.props.site;
+
+    return external__React__default.a.createElement(
+      "form",
+      { className: "topsite-form" },
+      external__React__default.a.createElement(
+        "section",
+        { className: "edit-topsites-inner-wrapper" },
+        external__React__default.a.createElement(
+          "div",
+          { className: "form-wrapper" },
+          external__React__default.a.createElement(
+            "h3",
+            { className: "section-title" },
+            external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: showAsAdd ? "topsites_form_add_header" : "topsites_form_edit_header" })
+          ),
+          external__React__default.a.createElement(
+            "div",
+            { className: "field title" },
+            external__React__default.a.createElement("input", {
+              type: "text",
+              value: this.state.label,
+              onChange: this.onLabelChange,
+              placeholder: this.props.intl.formatMessage({ id: "topsites_form_title_placeholder" }) })
+          ),
+          external__React__default.a.createElement(
+            "div",
+            { className: `field url${this.state.validationError ? " invalid" : ""}` },
+            external__React__default.a.createElement("input", {
+              type: "text",
+              ref: this.onUrlInputMount,
+              value: this.state.url,
+              onChange: this.onUrlChange,
+              placeholder: this.props.intl.formatMessage({ id: "topsites_form_url_placeholder" }) }),
+            this.state.validationError && external__React__default.a.createElement(
+              "aside",
+              { className: "error-tooltip" },
+              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_url_validation" })
+            )
+          )
+        )
+      ),
+      external__React__default.a.createElement(
+        "section",
+        { className: "actions" },
+        external__React__default.a.createElement(
+          "button",
+          { className: "cancel", type: "button", onClick: this.onCancelButtonClick },
+          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_cancel_button" })
+        ),
+        external__React__default.a.createElement(
+          "button",
+          { className: "done", type: "submit", onClick: this.onDoneButtonClick },
+          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: showAsAdd ? "topsites_form_add_button" : "topsites_form_save_button" })
+        )
+      )
+    );
+  }
+}
+
+TopSiteForm_TopSiteForm.defaultProps = {
+  TopSite: null,
+  index: -1
+};
 // EXTERNAL MODULE: ./system-addon/content-src/components/LinkMenu/LinkMenu.jsx + 2 modules
 var LinkMenu = __webpack_require__(6);
 
 // CONCATENATED MODULE: ./system-addon/content-src/components/TopSites/TopSite.jsx
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
 
 
 
@@ -2676,11 +2921,12 @@ class TopSite_TopSiteLink extends external__React__default.a.PureComponent {
         break;
     }
   }
+
   render() {
     const { children, className, isDraggable, link, onClick, title } = this.props;
     const topSiteOuterClassName = `top-site-outer${className ? ` ${className}` : ""}`;
     const { tippyTopIcon, faviconSize } = link;
-    const letterFallback = title[0];
+    const [letterFallback] = title;
     let imageClassName;
     let imageStyle;
     let showSmallFavicon = false;
@@ -2765,10 +3011,8 @@ class TopSite_TopSite extends external__React__default.a.PureComponent {
     this.onLinkClick = this.onLinkClick.bind(this);
     this.onMenuButtonClick = this.onMenuButtonClick.bind(this);
     this.onMenuUpdate = this.onMenuUpdate.bind(this);
-    this.onDismissButtonClick = this.onDismissButtonClick.bind(this);
-    this.onPinButtonClick = this.onPinButtonClick.bind(this);
-    this.onEditButtonClick = this.onEditButtonClick.bind(this);
   }
+
   userEvent(event) {
     this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
       event,
@@ -2776,55 +3020,21 @@ class TopSite_TopSite extends external__React__default.a.PureComponent {
       action_position: this.props.index
     }));
   }
+
   onLinkClick(ev) {
-    if (this.props.onEdit) {
-      // Ignore clicks if we are in the edit modal.
-      ev.preventDefault();
-      return;
-    }
     this.userEvent("CLICK");
   }
+
   onMenuButtonClick(event) {
     event.preventDefault();
     this.props.onActivate(this.props.index);
     this.setState({ showContextMenu: true });
   }
+
   onMenuUpdate(showContextMenu) {
     this.setState({ showContextMenu });
   }
-  onDismissButtonClick() {
-    const { link } = this.props;
-    if (link.isPinned) {
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-        type: Actions["b" /* actionTypes */].TOP_SITES_UNPIN,
-        data: { site: { url: link.url } }
-      }));
-    }
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-      type: Actions["b" /* actionTypes */].BLOCK_URL,
-      data: link.url
-    }));
-    this.userEvent("BLOCK");
-  }
-  onPinButtonClick() {
-    const { link, index } = this.props;
-    if (link.isPinned) {
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-        type: Actions["b" /* actionTypes */].TOP_SITES_UNPIN,
-        data: { site: { url: link.url } }
-      }));
-      this.userEvent("UNPIN");
-    } else {
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-        type: Actions["b" /* actionTypes */].TOP_SITES_PIN,
-        data: { site: { url: link.url }, index }
-      }));
-      this.userEvent("PIN");
-    }
-  }
-  onEditButtonClick() {
-    this.props.onEdit(this.props.index);
-  }
+
   render() {
     const { props } = this;
     const { link } = props;
@@ -2833,7 +3043,7 @@ class TopSite_TopSite extends external__React__default.a.PureComponent {
     return external__React__default.a.createElement(
       TopSite_TopSiteLink,
       _extends({}, props, { onClick: this.onLinkClick, onDragEvent: this.props.onDragEvent, className: isContextMenuOpen ? "active" : "", title: title }),
-      !props.onEdit && external__React__default.a.createElement(
+      external__React__default.a.createElement(
         "div",
         null,
         external__React__default.a.createElement(
@@ -2842,7 +3052,7 @@ class TopSite_TopSite extends external__React__default.a.PureComponent {
           external__React__default.a.createElement(
             "span",
             { className: "sr-only" },
-            `Open context menu for ${title}`
+            external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "context_menu_button_sr", values: { title } })
           )
         ),
         external__React__default.a.createElement(LinkMenu["a" /* LinkMenu */], {
@@ -2853,22 +3063,6 @@ class TopSite_TopSite extends external__React__default.a.PureComponent {
           site: link,
           source: TOP_SITES_SOURCE,
           visible: isContextMenuOpen })
-      ),
-      props.onEdit && external__React__default.a.createElement(
-        "div",
-        { className: "edit-menu" },
-        external__React__default.a.createElement("button", {
-          className: `icon icon-${link.isPinned ? "unpin" : "pin"}`,
-          title: this.props.intl.formatMessage({ id: `edit_topsites_${link.isPinned ? "unpin" : "pin"}_button` }),
-          onClick: this.onPinButtonClick }),
-        external__React__default.a.createElement("button", {
-          className: "icon icon-edit",
-          title: this.props.intl.formatMessage({ id: "edit_topsites_edit_button" }),
-          onClick: this.onEditButtonClick }),
-        external__React__default.a.createElement("button", {
-          className: "icon icon-dismiss",
-          title: this.props.intl.formatMessage({ id: "edit_topsites_dismiss_button" }),
-          onClick: this.onDismissButtonClick })
       )
     );
   }
@@ -2885,11 +3079,6 @@ class TopSite_TopSitePlaceholder extends external__React__default.a.PureComponen
   }
 
   onEditButtonClick() {
-    if (this.props.onEdit) {
-      this.props.onEdit(this.props.index);
-      return;
-    }
-
     this.props.dispatch({ type: Actions["b" /* actionTypes */].TOP_SITES_EDIT, data: { index: this.props.index } });
   }
 
@@ -2905,28 +3094,34 @@ class TopSite_TopSitePlaceholder extends external__React__default.a.PureComponen
 }
 
 class TopSite__TopSiteList extends external__React__default.a.PureComponent {
-  constructor(props) {
-    super(props);
-    this.state = this.DEFAULT_STATE = {
+  static get DEFAULT_STATE() {
+    return {
+      activeIndex: null,
       draggedIndex: null,
       draggedSite: null,
       draggedTitle: null,
-      topSitesPreview: null,
-      activeIndex: null
+      topSitesPreview: null
     };
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = TopSite__TopSiteList.DEFAULT_STATE;
     this.onDragEvent = this.onDragEvent.bind(this);
     this.onActivate = this.onActivate.bind(this);
   }
+
   componentWillUpdate(nextProps) {
     if (this.state.draggedSite) {
       const prevTopSites = this.props.TopSites && this.props.TopSites.rows;
       const newTopSites = nextProps.TopSites && nextProps.TopSites.rows;
       if (prevTopSites && prevTopSites[this.state.draggedIndex] && prevTopSites[this.state.draggedIndex].url === this.state.draggedSite.url && (!newTopSites[this.state.draggedIndex] || newTopSites[this.state.draggedIndex].url !== this.state.draggedSite.url)) {
         // We got the new order from the redux store via props. We can clear state now.
-        this.setState(this.DEFAULT_STATE);
+        this.setState(TopSite__TopSiteList.DEFAULT_STATE);
       }
     }
   }
+
   userEvent(event, index) {
     this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
       event,
@@ -2934,6 +3129,7 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
       action_position: index
     }));
   }
+
   onDragEvent(event, index, link, title) {
     switch (event.type) {
       case "dragstart":
@@ -2949,7 +3145,7 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
       case "dragend":
         if (!this.dropped) {
           // If there was no drop event, reset the state to the default.
-          this.setState(this.DEFAULT_STATE);
+          this.setState(TopSite__TopSiteList.DEFAULT_STATE);
         }
         break;
       case "dragenter":
@@ -2962,7 +3158,7 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
       case "drop":
         if (index !== this.state.draggedIndex) {
           this.dropped = true;
-          this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
+          this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({
             type: Actions["b" /* actionTypes */].TOP_SITES_INSERT,
             data: { site: { url: this.state.draggedSite.url, label: this.state.draggedTitle }, index, draggedFromIndex: this.state.draggedIndex }
           }));
@@ -2971,10 +3167,11 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
         break;
     }
   }
+
   _getTopSites() {
     // Make a copy of the sites to truncate or extend to desired length
     let topSites = this.props.TopSites.rows.slice();
-    topSites.length = this.props.TopSitesCount;
+    topSites.length = this.props.TopSitesRows * Reducers["a" /* TOP_SITES_MAX_SITES_PER_ROW */];
     return topSites;
   }
 
@@ -3019,9 +3216,11 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
 
     return preview;
   }
+
   onActivate(index) {
     this.setState({ activeIndex: index });
   }
+
   render() {
     const { props } = this;
     const topSites = this.state.topSitesPreview || this._getTopSites();
@@ -3042,366 +3241,23 @@ class TopSite__TopSiteList extends external__React__default.a.PureComponent {
         key: link ? link.url : holeIndex++,
         index: i
       };
-      topSitesUI.push(!link ? external__React__default.a.createElement(TopSite_TopSitePlaceholder, _extends({
-        onEdit: props.onEdit
-      }, slotProps, commonProps)) : external__React__default.a.createElement(TopSite_TopSite, _extends({
+      topSitesUI.push(!link ? external__React__default.a.createElement(TopSite_TopSitePlaceholder, _extends({}, slotProps, commonProps)) : external__React__default.a.createElement(TopSite_TopSite, _extends({
         link: link,
-        onEdit: props.onEdit,
         activeIndex: this.state.activeIndex,
         onActivate: this.onActivate
       }, slotProps, commonProps)));
     }
     return external__React__default.a.createElement(
       "ul",
-      { className: "top-sites-list" },
+      { className: `top-sites-list${this.state.draggedSite ? " dnd-active" : ""}` },
       topSitesUI
     );
   }
 }
 
 const TopSiteList = Object(external__ReactIntl_["injectIntl"])(TopSite__TopSiteList);
-// CONCATENATED MODULE: ./system-addon/content-src/components/TopSites/TopSiteForm.jsx
-
-
-
-
-
-class TopSiteForm_TopSiteForm extends external__React__default.a.PureComponent {
-  constructor(props) {
-    super(props);
-    this.state = {
-      label: props.label || "",
-      url: props.url || "",
-      validationError: false
-    };
-    this.onLabelChange = this.onLabelChange.bind(this);
-    this.onUrlChange = this.onUrlChange.bind(this);
-    this.onCancelButtonClick = this.onCancelButtonClick.bind(this);
-    this.onAddButtonClick = this.onAddButtonClick.bind(this);
-    this.onSaveButtonClick = this.onSaveButtonClick.bind(this);
-    this.onUrlInputMount = this.onUrlInputMount.bind(this);
-  }
-  onLabelChange(event) {
-    this.resetValidation();
-    this.setState({ "label": event.target.value });
-  }
-  onUrlChange(event) {
-    this.resetValidation();
-    this.setState({ "url": event.target.value });
-  }
-  onCancelButtonClick(ev) {
-    ev.preventDefault();
-    this.props.onClose();
-  }
-  onAddButtonClick(ev) {
-    ev.preventDefault();
-    if (this.validateForm()) {
-      let site = { url: this.cleanUrl() };
-      if (this.state.label !== "") {
-        site.label = this.state.label;
-      }
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-        type: Actions["b" /* actionTypes */].TOP_SITES_INSERT,
-        data: { site }
-      }));
-      this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-        source: TOP_SITES_SOURCE,
-        event: "TOP_SITES_ADD"
-      }));
-      this.props.onClose();
-    }
-  }
-  onSaveButtonClick(ev) {
-    ev.preventDefault();
-    if (this.validateForm()) {
-      let site = { url: this.cleanUrl() };
-      if (this.state.label !== "") {
-        site.label = this.state.label;
-      }
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-        type: Actions["b" /* actionTypes */].TOP_SITES_PIN,
-        data: { site, index: this.props.index }
-      }));
-      this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-        source: TOP_SITES_SOURCE,
-        event: "TOP_SITES_EDIT",
-        action_position: this.props.index
-      }));
-      this.props.onClose();
-    }
-  }
-  cleanUrl() {
-    let url = this.state.url;
-    // If we are missing a protocol, prepend http://
-    if (!url.startsWith("http:") && !url.startsWith("https:")) {
-      url = `http://${url}`;
-    }
-    return url;
-  }
-  resetValidation() {
-    if (this.state.validationError) {
-      this.setState({ validationError: false });
-    }
-  }
-  validateUrl() {
-    try {
-      return !!new URL(this.cleanUrl());
-    } catch (e) {
-      return false;
-    }
-  }
-  validateForm() {
-    this.resetValidation();
-    // Only the URL is required and must be valid.
-    if (!this.state.url || !this.validateUrl()) {
-      this.setState({ validationError: true });
-      this.inputUrl.focus();
-      return false;
-    }
-    return true;
-  }
-  onUrlInputMount(input) {
-    this.inputUrl = input;
-  }
-  render() {
-    return external__React__default.a.createElement(
-      "form",
-      { className: "topsite-form" },
-      external__React__default.a.createElement(
-        "section",
-        { className: "edit-topsites-inner-wrapper" },
-        external__React__default.a.createElement(
-          "div",
-          { className: "form-wrapper" },
-          external__React__default.a.createElement(
-            "h3",
-            { className: "section-title" },
-            external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: this.props.editMode ? "topsites_form_edit_header" : "topsites_form_add_header" })
-          ),
-          external__React__default.a.createElement(
-            "div",
-            { className: "field title" },
-            external__React__default.a.createElement("input", {
-              type: "text",
-              value: this.state.label,
-              onChange: this.onLabelChange,
-              placeholder: this.props.intl.formatMessage({ id: "topsites_form_title_placeholder" }) })
-          ),
-          external__React__default.a.createElement(
-            "div",
-            { className: `field url${this.state.validationError ? " invalid" : ""}` },
-            external__React__default.a.createElement("input", {
-              type: "text",
-              ref: this.onUrlInputMount,
-              value: this.state.url,
-              onChange: this.onUrlChange,
-              placeholder: this.props.intl.formatMessage({ id: "topsites_form_url_placeholder" }) }),
-            this.state.validationError && external__React__default.a.createElement(
-              "aside",
-              { className: "error-tooltip" },
-              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_url_validation" })
-            )
-          )
-        )
-      ),
-      external__React__default.a.createElement(
-        "section",
-        { className: "actions" },
-        external__React__default.a.createElement(
-          "button",
-          { className: "cancel", type: "button", onClick: this.onCancelButtonClick },
-          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_cancel_button" })
-        ),
-        this.props.editMode && external__React__default.a.createElement(
-          "button",
-          { className: "done save", type: "submit", onClick: this.onSaveButtonClick },
-          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_save_button" })
-        ),
-        !this.props.editMode && external__React__default.a.createElement(
-          "button",
-          { className: "done add", type: "submit", onClick: this.onAddButtonClick },
-          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "topsites_form_add_button" })
-        )
-      )
-    );
-  }
-}
-
-TopSiteForm_TopSiteForm.defaultProps = {
-  label: "",
-  url: "",
-  index: 0,
-  editMode: false // by default we are in "Add New Top Site" mode
-};
-// CONCATENATED MODULE: ./system-addon/content-src/components/TopSites/TopSitesEdit.jsx
-
-
-
-
-
-
-
-
-class TopSitesEdit__TopSitesEdit extends external__React__default.a.PureComponent {
-  constructor(props) {
-    super(props);
-    this.state = {
-      showEditModal: false,
-      showAddForm: false,
-      showEditForm: false,
-      editIndex: -1 // Index of top site being edited
-    };
-    this.onEditButtonClick = this.onEditButtonClick.bind(this);
-    this.onShowMoreLessClick = this.onShowMoreLessClick.bind(this);
-    this.onModalOverlayClick = this.onModalOverlayClick.bind(this);
-    this.onAddButtonClick = this.onAddButtonClick.bind(this);
-    this.onFormClose = this.onFormClose.bind(this);
-    this.onEdit = this.onEdit.bind(this);
-  }
-  onEditButtonClick() {
-    this.setState({ showEditModal: !this.state.showEditModal });
-    const event = this.state.showEditModal ? "TOP_SITES_EDIT_OPEN" : "TOP_SITES_EDIT_CLOSE";
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      source: TOP_SITES_SOURCE,
-      event
-    }));
-  }
-  onModalOverlayClick() {
-    this.setState({ showEditModal: false, showAddForm: false, showEditForm: false });
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      source: TOP_SITES_SOURCE,
-      event: "TOP_SITES_EDIT_CLOSE"
-    }));
-    this.props.dispatch({ type: Actions["b" /* actionTypes */].TOP_SITES_CANCEL_EDIT });
-  }
-  onShowMoreLessClick() {
-    const prefIsSetToDefault = this.props.TopSitesCount === Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */];
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
-      type: Actions["b" /* actionTypes */].SET_PREF,
-      data: { name: "topSitesCount", value: prefIsSetToDefault ? Reducers["b" /* TOP_SITES_SHOWMORE_LENGTH */] : Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */] }
-    }));
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      source: TOP_SITES_SOURCE,
-      event: prefIsSetToDefault ? "TOP_SITES_EDIT_SHOW_MORE" : "TOP_SITES_EDIT_SHOW_LESS"
-    }));
-  }
-  onAddButtonClick() {
-    this.setState({ showAddForm: true });
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      source: TOP_SITES_SOURCE,
-      event: "TOP_SITES_ADD_FORM_OPEN"
-    }));
-  }
-  onFormClose() {
-    this.setState({ showAddForm: false, showEditForm: false });
-    this.props.dispatch({ type: Actions["b" /* actionTypes */].TOP_SITES_CANCEL_EDIT });
-  }
-  onEdit(index) {
-    this.setState({ showEditForm: true, editIndex: index });
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      source: TOP_SITES_SOURCE,
-      event: "TOP_SITES_EDIT_FORM_OPEN"
-    }));
-  }
-  render() {
-    const { editForm } = this.props.TopSites;
-    const showEditForm = editForm && editForm.visible || this.state.showEditModal && this.state.showEditForm;
-    let editIndex = this.state.editIndex;
-    if (editIndex < 0 && editForm) {
-      editIndex = editForm.index;
-    }
-    const editSite = this.props.TopSites.rows[editIndex] || {};
-    return external__React__default.a.createElement(
-      "div",
-      { className: "edit-topsites-wrapper" },
-      external__React__default.a.createElement(
-        "div",
-        { className: "edit-topsites-button" },
-        external__React__default.a.createElement(
-          "button",
-          {
-            className: "edit",
-            title: this.props.intl.formatMessage({ id: "edit_topsites_button_label" }),
-            onClick: this.onEditButtonClick },
-          external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "edit_topsites_button_text" })
-        )
-      ),
-      this.state.showEditModal && !this.state.showAddForm && !this.state.showEditForm && external__React__default.a.createElement(
-        "div",
-        { className: "edit-topsites" },
-        external__React__default.a.createElement("div", { className: "modal-overlay", onClick: this.onModalOverlayClick }),
-        external__React__default.a.createElement(
-          "div",
-          { className: "modal" },
-          external__React__default.a.createElement(
-            "section",
-            { className: "edit-topsites-inner-wrapper" },
-            external__React__default.a.createElement(
-              "div",
-              { className: "section-top-bar" },
-              external__React__default.a.createElement(
-                "h3",
-                { className: "section-title" },
-                external__React__default.a.createElement("span", { className: `icon icon-small-spacer icon-topsites` }),
-                external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "header_top_sites" })
-              )
-            ),
-            external__React__default.a.createElement(TopSiteList, { TopSites: this.props.TopSites, TopSitesCount: this.props.TopSitesCount, onEdit: this.onEdit, dispatch: this.props.dispatch, intl: this.props.intl })
-          ),
-          external__React__default.a.createElement(
-            "section",
-            { className: "actions" },
-            external__React__default.a.createElement(
-              "button",
-              { className: "add", onClick: this.onAddButtonClick },
-              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "edit_topsites_add_button" })
-            ),
-            external__React__default.a.createElement(
-              "button",
-              { className: `icon icon-topsites show-${this.props.TopSitesCount === Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */] ? "more" : "less"}`, onClick: this.onShowMoreLessClick },
-              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: `edit_topsites_show${this.props.TopSitesCount === Reducers["a" /* TOP_SITES_DEFAULT_LENGTH */] ? "more" : "less"}_button` })
-            ),
-            external__React__default.a.createElement(
-              "button",
-              { className: "done", onClick: this.onEditButtonClick },
-              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "edit_topsites_done_button" })
-            )
-          )
-        )
-      ),
-      this.state.showEditModal && this.state.showAddForm && external__React__default.a.createElement(
-        "div",
-        { className: "edit-topsites" },
-        external__React__default.a.createElement("div", { className: "modal-overlay", onClick: this.onModalOverlayClick }),
-        external__React__default.a.createElement(
-          "div",
-          { className: "modal" },
-          external__React__default.a.createElement(TopSiteForm_TopSiteForm, { onClose: this.onFormClose, dispatch: this.props.dispatch, intl: this.props.intl })
-        )
-      ),
-      showEditForm && external__React__default.a.createElement(
-        "div",
-        { className: "edit-topsites" },
-        external__React__default.a.createElement("div", { className: "modal-overlay", onClick: this.onModalOverlayClick }),
-        external__React__default.a.createElement(
-          "div",
-          { className: "modal" },
-          external__React__default.a.createElement(TopSiteForm_TopSiteForm, {
-            label: editSite.label || editSite.hostname || "",
-            url: editSite.url || "",
-            index: editIndex,
-            editMode: true,
-            onClose: this.onFormClose,
-            dispatch: this.props.dispatch,
-            intl: this.props.intl })
-        )
-      )
-    );
-  }
-}
-
-const TopSitesEdit = Object(external__ReactIntl_["injectIntl"])(TopSitesEdit__TopSitesEdit);
 // CONCATENATED MODULE: ./system-addon/content-src/components/TopSites/TopSites.jsx
+
 
 
 
@@ -3444,6 +3300,12 @@ function countTopSitesIconsTypes(topSites) {
 }
 
 class TopSites__TopSites extends external__React__default.a.PureComponent {
+  constructor(props) {
+    super(props);
+    this.onAddButtonClick = this.onAddButtonClick.bind(this);
+    this.onFormClose = this.onFormClose.bind(this);
+  }
+
   /**
    * Dispatch session statistics about the quality of TopSites icons and pinned count.
    */
@@ -3452,7 +3314,7 @@ class TopSites__TopSites extends external__React__default.a.PureComponent {
     const topSitesIconsStats = countTopSitesIconsTypes(topSites);
     const topSitesPinned = topSites.filter(site => !!site.isPinned).length;
     // Dispatch telemetry event with the count of TopSites images types.
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
+    this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].SAVE_SESSION_PERF_DATA,
       data: { topsites_icon_stats: topSitesIconsStats, topsites_pinned: topSitesPinned }
     }));
@@ -3462,7 +3324,7 @@ class TopSites__TopSites extends external__React__default.a.PureComponent {
    * Return the TopSites to display based on prefs.
    */
   _getTopSites() {
-    return this.props.TopSites.rows.slice(0, this.props.TopSitesCount);
+    return this.props.TopSites.rows.slice(0, this.props.TopSitesRows * Reducers["a" /* TOP_SITES_MAX_SITES_PER_ROW */]);
   }
 
   componentDidUpdate() {
@@ -3473,20 +3335,69 @@ class TopSites__TopSites extends external__React__default.a.PureComponent {
     this._dispatchTopSitesStats();
   }
 
+  onAddButtonClick() {
+    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
+      source: TOP_SITES_SOURCE,
+      event: "TOP_SITES_ADD_FORM_OPEN"
+    }));
+    // Negative index will prepend the TopSite at the beginning of the list
+    this.props.dispatch({ type: Actions["b" /* actionTypes */].TOP_SITES_EDIT, data: { index: -1 } });
+  }
+
+  onFormClose() {
+    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
+      source: TOP_SITES_SOURCE,
+      event: "TOP_SITES_EDIT_CLOSE"
+    }));
+    this.props.dispatch({ type: Actions["b" /* actionTypes */].TOP_SITES_CANCEL_EDIT });
+  }
+
   render() {
-    const props = this.props;
+    const { props } = this;
     const infoOption = {
       header: { id: "settings_pane_topsites_header" },
       body: { id: "settings_pane_topsites_body" }
     };
+    const { editForm } = props.TopSites;
+
     return external__React__default.a.createElement(
       ComponentPerfTimer["a" /* ComponentPerfTimer */],
       { id: "topsites", initialized: props.TopSites.initialized, dispatch: props.dispatch },
       external__React__default.a.createElement(
         CollapsibleSection["a" /* CollapsibleSection */],
         { className: "top-sites", icon: "topsites", title: external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "header_top_sites" }), infoOption: infoOption, prefName: "collapseTopSites", Prefs: props.Prefs, dispatch: props.dispatch },
-        external__React__default.a.createElement(TopSiteList, { TopSites: props.TopSites, TopSitesCount: props.TopSitesCount, dispatch: props.dispatch, intl: props.intl }),
-        external__React__default.a.createElement(TopSitesEdit, props)
+        external__React__default.a.createElement(TopSiteList, { TopSites: props.TopSites, TopSitesRows: props.TopSitesRows, dispatch: props.dispatch, intl: props.intl }),
+        external__React__default.a.createElement(
+          "div",
+          { className: "edit-topsites-wrapper" },
+          external__React__default.a.createElement(
+            "div",
+            { className: "add-topsites-button" },
+            external__React__default.a.createElement(
+              "button",
+              {
+                className: "add",
+                title: this.props.intl.formatMessage({ id: "edit_topsites_add_button_tooltip" }),
+                onClick: this.onAddButtonClick },
+              external__React__default.a.createElement(external__ReactIntl_["FormattedMessage"], { id: "edit_topsites_add_button" })
+            )
+          ),
+          editForm && external__React__default.a.createElement(
+            "div",
+            { className: "edit-topsites" },
+            external__React__default.a.createElement("div", { className: "modal-overlay", onClick: this.onFormClose }),
+            external__React__default.a.createElement(
+              "div",
+              { className: "modal" },
+              external__React__default.a.createElement(TopSiteForm_TopSiteForm, {
+                site: props.TopSites.rows[editForm.index],
+                index: editForm.index,
+                onClose: this.onFormClose,
+                dispatch: this.props.dispatch,
+                intl: this.props.intl })
+            )
+          )
+        )
       )
     );
   }
@@ -3495,8 +3406,8 @@ class TopSites__TopSites extends external__React__default.a.PureComponent {
 const TopSites = Object(external__ReactRedux_["connect"])(state => ({
   TopSites: state.TopSites,
   Prefs: state.Prefs,
-  TopSitesCount: state.Prefs.values.topSitesCount
-}))(TopSites__TopSites);
+  TopSitesRows: state.Prefs.values.topSitesRows
+}))(Object(external__ReactIntl_["injectIntl"])(TopSites__TopSites));
 // CONCATENATED MODULE: ./system-addon/content-src/components/Base/Base.jsx
 
 
@@ -3529,8 +3440,8 @@ class Base__Base extends external__React__default.a.PureComponent {
     // prerendered DOM to be unmounted. Otherwise, NEW_TAB_STATE_REQUEST is
     // dispatched right after the store is ready.
     if (this.props.isPrerendered) {
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].PAGE_PRERENDERED }));
+      this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
+      this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].PAGE_PRERENDERED }));
     }
   }
 
@@ -3543,13 +3454,13 @@ class Base__Base extends external__React__default.a.PureComponent {
   // have rendered that data.
   sendNewTabRehydrated(App) {
     if (App && App.initialized && !this.renderNotified) {
-      this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({ type: Actions["b" /* actionTypes */].NEW_TAB_REHYDRATED, data: {} }));
+      this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({ type: Actions["b" /* actionTypes */].NEW_TAB_REHYDRATED, data: {} }));
       this.renderNotified = true;
     }
   }
 
   render() {
-    const props = this.props;
+    const { props } = this;
     const { App, locale, strings } = props;
     const { initialized } = App;
     const prefs = props.Prefs.values;
@@ -3780,7 +3691,7 @@ class Section extends __WEBPACK_IMPORTED_MODULE_6_react___default.a.PureComponen
           "ul",
           { className: "section-list", style: { padding: 0 } },
           realRows.map((link, index) => link && __WEBPACK_IMPORTED_MODULE_6_react___default.a.createElement(__WEBPACK_IMPORTED_MODULE_0_content_src_components_Card_Card__["a" /* Card */], { key: index, index: index, dispatch: dispatch, link: link, contextMenuOptions: contextMenuOptions,
-            eventSource: eventSource, shouldSendImpressionStats: this.props.shouldSendImpressionStats })),
+            eventSource: eventSource, shouldSendImpressionStats: this.props.shouldSendImpressionStats, isWebExtension: this.props.isWebExtension })),
           placeholders > 0 && [...new Array(placeholders)].map((_, i) => __WEBPACK_IMPORTED_MODULE_6_react___default.a.createElement(__WEBPACK_IMPORTED_MODULE_0_content_src_components_Card_Card__["b" /* PlaceholderCard */], { key: i }))
         ),
         shouldShowEmptyState && __WEBPACK_IMPORTED_MODULE_6_react___default.a.createElement(
@@ -3943,41 +3854,57 @@ class Card_Card extends external__React__default.a.PureComponent {
       showContextMenu: true
     });
   }
+
   onLinkClick(event) {
     event.preventDefault();
     const { altKey, button, ctrlKey, metaKey, shiftKey } = event;
-    this.props.dispatch(Actions["a" /* actionCreators */].SendToMain({
+    this.props.dispatch(Actions["a" /* actionCreators */].AlsoToMain({
       type: Actions["b" /* actionTypes */].OPEN_LINK,
       data: Object.assign(this.props.link, { event: { altKey, button, ctrlKey, metaKey, shiftKey } })
     }));
-    this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
-      event: "CLICK",
-      source: this.props.eventSource,
-      action_position: this.props.index
-    }));
-    if (this.props.shouldSendImpressionStats) {
-      this.props.dispatch(Actions["a" /* actionCreators */].ImpressionStats({
+
+    if (this.props.isWebExtension) {
+      this.props.dispatch(Actions["a" /* actionCreators */].WebExtEvent(Actions["b" /* actionTypes */].WEBEXT_CLICK, {
         source: this.props.eventSource,
-        click: 0,
-        tiles: [{ id: this.props.link.guid, pos: this.props.index }]
+        url: this.props.link.url,
+        action_position: this.props.index
       }));
+    } else {
+      this.props.dispatch(Actions["a" /* actionCreators */].UserEvent({
+        event: "CLICK",
+        source: this.props.eventSource,
+        action_position: this.props.index
+      }));
+
+      if (this.props.shouldSendImpressionStats) {
+        this.props.dispatch(Actions["a" /* actionCreators */].ImpressionStats({
+          source: this.props.eventSource,
+          click: 0,
+          tiles: [{ id: this.props.link.guid, pos: this.props.index }]
+        }));
+      }
     }
   }
+
   onMenuUpdate(showContextMenu) {
     this.setState({ showContextMenu });
   }
+
   componentDidMount() {
     this.maybeLoadImage();
   }
+
   componentDidUpdate() {
     this.maybeLoadImage();
   }
+
   componentWillReceiveProps(nextProps) {
     // Clear the image state if changing images
     if (nextProps.link.image !== this.props.link.image) {
       this.setState({ imageLoaded: false });
     }
   }
+
   render() {
     const { index, link, dispatch, contextMenuOptions, eventSource, shouldSendImpressionStats } = this.props;
     const { props } = this;
@@ -4178,7 +4105,7 @@ class DetectUserSessionStart {
     try {
       let visibility_event_rcvd_ts = this._perfService.getMostRecentAbsMarkStartByName("visibility_event_rcvd_ts");
 
-      this._store.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({
+      this._store.dispatch(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({
         type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].SAVE_SESSION_PERF_DATA,
         data: { visibility_event_rcvd_ts }
       }));
@@ -4260,10 +4187,13 @@ function mergeStateReducer(mainReducer) {
  * messageMiddleware - Middleware that looks for SentToMain type actions, and sends them if necessary
  */
 const messageMiddleware = store => next => action => {
+  const skipLocal = action.meta && action.meta.skipLocal;
   if (__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isSendToMain(action)) {
     sendAsyncMessage(OUTGOING_MESSAGE_NAME, action);
   }
-  next(action);
+  if (!skipLocal) {
+    next(action);
+  }
 };
 
 const rehydrationMiddleware = store => next => action => {
@@ -4286,10 +4216,10 @@ const rehydrationMiddleware = store => next => action => {
 
   // If init happened after our request was made, we need to re-request
   if (store._didRequestInitialState && action.type === __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].INIT) {
-    return next(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].SendToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
+    return next(__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["a" /* actionCreators */].AlsoToMain({ type: __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["b" /* actionTypes */].NEW_TAB_STATE_REQUEST }));
   }
 
-  if (__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isBroadcastToContent(action) || __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isSendToContent(action) || __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isSendToPreloaded(action)) {
+  if (__WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isBroadcastToContent(action) || __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isSendToOneContent(action) || __WEBPACK_IMPORTED_MODULE_0_common_Actions_jsm__["c" /* actionUtils */].isSendToPreloaded(action)) {
     // Note that actions received before didRehydrate will not be dispatched
     // because this could negatively affect preloading and the the state
     // will be replaced by rehydration anyway.

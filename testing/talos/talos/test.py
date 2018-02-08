@@ -162,6 +162,11 @@ class ts_paint_heavy(ts_paint):
 
 
 @register_test()
+class ts_paint_flex(ts_paint):
+    preferences = {'layout.css.emulate-moz-box-with-flex': True}
+
+
+@register_test()
 class sessionrestore(TsBase):
     """
     A start up test measuring the time it takes to load a sessionstore.js file.
@@ -396,6 +401,11 @@ class tart(PageloaderTest):
                    'dom.send_after_paint_to_content': False}
     filters = filter.ignore_first.prepare(1) + filter.median.prepare()
     unit = 'ms'
+
+
+@register_test()
+class tart_flex(tart):
+    preferences = {'layout.css.emulate-moz-box-with-flex': True}
 
 
 @register_test()
@@ -659,25 +669,6 @@ class basic_compositor_video(PageloaderTest):
     lower_is_better = True
 
 
-@register_test()
-class tcanvasmark(PageloaderTest):
-    """
-    CanvasMark benchmark v0.6
-    """
-    tpmanifest = '${talos}/tests/canvasmark/canvasmark.manifest'
-    win_counters = w7_counters = linux_counters = mac_counters = None
-    tpcycles = 5
-    tppagecycles = 1
-    timeout = 900
-    gecko_profile_interval = 10
-    gecko_profile_entries = 2500000
-    tpmozafterpaint = False
-    preferences = {'dom.send_after_paint_to_content': False}
-    filters = filter.ignore_first.prepare(1) + filter.median.prepare()
-    unit = 'score'
-    lower_is_better = False
-
-
 class dromaeo(PageloaderTest):
     """abstract base class for dramaeo tests"""
     filters = filter.dromaeo.prepare()
@@ -900,6 +891,7 @@ class tp6_google(QuantumPageloadTest):
     Quantum Pageload Test - Google
     """
     tpmanifest = '${talos}/tests/quantum_pageload/quantum_pageload_google.manifest'
+    fnbpaint = False
     tphero = True
 
 

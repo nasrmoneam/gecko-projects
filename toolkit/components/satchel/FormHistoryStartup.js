@@ -4,11 +4,11 @@
 
 const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "FormHistory",
-                                  "resource://gre/modules/FormHistory.jsm");
+ChromeUtils.defineModuleGetter(this, "FormHistory",
+                               "resource://gre/modules/FormHistory.jsm");
 
 function FormHistoryStartup() { }
 
@@ -30,9 +30,6 @@ FormHistoryStartup.prototype = {
       case "formhistory-expire-now":
         FormHistory.expireOldEntries();
         break;
-      case "profile-before-change":
-        FormHistory.shutdown();
-        break;
       case "profile-after-change":
         this.init();
         break;
@@ -51,7 +48,6 @@ FormHistoryStartup.prototype = {
     Services.prefs.addObserver("browser.formfill.", this, true);
 
     // triggers needed service cleanup and db shutdown
-    Services.obs.addObserver(this, "profile-before-change", true);
     Services.obs.addObserver(this, "idle-daily", true);
     Services.obs.addObserver(this, "formhistory-expire-now", true);
 

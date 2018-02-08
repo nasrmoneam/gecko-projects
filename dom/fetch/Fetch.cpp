@@ -45,15 +45,13 @@
 #include "InternalRequest.h"
 #include "InternalResponse.h"
 
-#include "WorkerPrivate.h"
-#include "WorkerRunnable.h"
-#include "WorkerScope.h"
-#include "Workers.h"
+#include "mozilla/dom/WorkerCommon.h"
+#include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h"
+#include "mozilla/dom/WorkerScope.h"
 
 namespace mozilla {
 namespace dom {
-
-using namespace workers;
 
 namespace {
 
@@ -174,7 +172,7 @@ public:
   {}
 
   bool
-  Notify(Status aStatus) override;
+  Notify(WorkerStatus aStatus) override;
 };
 
 class WorkerFetchResolver final : public FetchDriverObserver
@@ -190,7 +188,7 @@ class WorkerFetchResolver final : public FetchDriverObserver
 public:
   // Returns null if worker is shutting down.
   static already_AddRefed<WorkerFetchResolver>
-  Create(workers::WorkerPrivate* aWorkerPrivate, Promise* aPromise,
+  Create(WorkerPrivate* aWorkerPrivate, Promise* aPromise,
          AbortSignal* aSignal, FetchObserver* aObserver)
   {
     MOZ_ASSERT(aWorkerPrivate);
@@ -384,13 +382,19 @@ private:
 class MainThreadFetchRunnable : public Runnable
 {
   RefPtr<WorkerFetchResolver> mResolver;
+  const ClientInfo mClientInfo;
+  const Maybe<ServiceWorkerDescriptor> mController;
   RefPtr<InternalRequest> mRequest;
 
 public:
   MainThreadFetchRunnable(WorkerFetchResolver* aResolver,
+                          const ClientInfo& aClientInfo,
+                          const Maybe<ServiceWorkerDescriptor>& aController,
                           InternalRequest* aRequest)
     : Runnable("dom::MainThreadFetchRunnable")
     , mResolver(aResolver)
+    , mClientInfo(aClientInfo)
+    , mController(aController)
     , mRequest(aRequest)
   {
     MOZ_ASSERT(mResolver);
@@ -420,12 +424,17 @@ public:
       // We don't track if a worker is spawned from a tracking script for now,
       // so pass false as the last argument to FetchDriver().
       fetch = new FetchDriver(mRequest, principal, loadGroup,
-                              workerPrivate->MainThreadEventTarget(), false);
+                              workerPrivate->MainThreadEventTarget(),
+                              workerPrivate->GetPerformanceStorage(),
+                              false);
       nsAutoCString spec;
       if (proxy->GetWorkerPrivate()->GetBaseURI()) {
         proxy->GetWorkerPrivate()->GetBaseURI()->GetAsciiSpec(spec);
       }
       fetch->SetWorkerScript(spec);
+
+      fetch->SetClientInfo(mClientInfo);
+      fetch->SetController(mController);
     }
 
     RefPtr<AbortSignal> signal = mResolver->GetAbortSignalForMainThread();
@@ -521,7 +530,9 @@ FetchRequest(nsIGlobalObject* aGlobal, const RequestOrUSVString& aInput,
       new MainThreadFetchResolver(p, observer, signal, request->MozErrors());
     RefPtr<FetchDriver> fetch =
       new FetchDriver(r, principal, loadGroup,
-                      aGlobal->EventTargetFor(TaskCategory::Other), isTrackingFetch);
+                      aGlobal->EventTargetFor(TaskCategory::Other),
+                      nullptr, // PerformanceStorage
+                      isTrackingFetch);
     fetch->SetDocument(doc);
     resolver->SetLoadGroup(loadGroup);
     aRv = fetch->Fetch(signal, resolver);
@@ -547,7 +558,8 @@ FetchRequest(nsIGlobalObject* aGlobal, const RequestOrUSVString& aInput,
     }
 
     RefPtr<MainThreadFetchRunnable> run =
-      new MainThreadFetchRunnable(resolver, r);
+      new MainThreadFetchRunnable(resolver, worker->GetClientInfo(),
+                                  worker->GetController(), r);
     worker->DispatchToMainThread(run.forget());
   }
 
@@ -766,7 +778,7 @@ public:
 };
 
 bool
-WorkerNotifier::Notify(Status aStatus)
+WorkerNotifier::Notify(WorkerStatus aStatus)
 {
   if (mResolver) {
     // This will nullify this object.
@@ -857,7 +869,7 @@ WorkerFetchResolver::FlushConsoleReport()
     return;
   }
 
-  workers::WorkerPrivate* worker = mPromiseProxy->GetWorkerPrivate();
+  WorkerPrivate* worker = mPromiseProxy->GetWorkerPrivate();
   if (!worker) {
     mReporter->FlushReportsToConsole(0);
     return;

@@ -11,6 +11,7 @@
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/IntegerTypeTraits.h"
 #include "mozilla/PodOperations.h"
+#include "mozilla/ScopeExit.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -33,6 +34,7 @@
 #include "vm/Unicode.h"
 
 using mozilla::ArrayLength;
+using mozilla::MakeScopeExit;
 using mozilla::Maybe;
 using mozilla::PodArrayZero;
 using mozilla::PodAssign;
@@ -210,7 +212,7 @@ ReservedWordTokenKind(PropertyName* str)
     if (const ReservedWordInfo* rw = FindReservedWord(str))
         return rw->tokentype;
 
-    return TokenKind::TOK_NAME;
+    return TokenKind::Name;
 }
 
 const char*
@@ -225,7 +227,7 @@ ReservedWordToCharZ(PropertyName* str)
 const char*
 ReservedWordToCharZ(TokenKind tt)
 {
-    MOZ_ASSERT(tt != TokenKind::TOK_NAME);
+    MOZ_ASSERT(tt != TokenKind::Name);
     switch (tt) {
 #define EMIT_CASE(word, name, type) case type: return js_##word##_str;
       FOR_EACH_JAVASCRIPT_RESERVED_WORD(EMIT_CASE)
@@ -239,7 +241,7 @@ ReservedWordToCharZ(TokenKind tt)
 PropertyName*
 TokenStreamAnyChars::reservedWordToPropertyName(TokenKind tt) const
 {
-    MOZ_ASSERT(tt != TokenKind::TOK_NAME);
+    MOZ_ASSERT(tt != TokenKind::Name);
     switch (tt) {
 #define EMIT_CASE(word, name, type) case type: return cx->names().name;
       FOR_EACH_JAVASCRIPT_RESERVED_WORD(EMIT_CASE)
@@ -426,12 +428,12 @@ TokenStreamAnyChars::TokenStreamAnyChars(JSContext* cx, const ReadOnlyCompileOpt
 
     // See Parser::assignExpr() for an explanation of isExprEnding[].
     PodArrayZero(isExprEnding);
-    isExprEnding[size_t(TokenKind::TOK_COMMA)] = 1;
-    isExprEnding[size_t(TokenKind::TOK_SEMI)] = 1;
-    isExprEnding[size_t(TokenKind::TOK_COLON)] = 1;
-    isExprEnding[size_t(TokenKind::TOK_RP)] = 1;
-    isExprEnding[size_t(TokenKind::TOK_RB)] = 1;
-    isExprEnding[size_t(TokenKind::TOK_RC)] = 1;
+    isExprEnding[size_t(TokenKind::Comma)] = 1;
+    isExprEnding[size_t(TokenKind::Semi)] = 1;
+    isExprEnding[size_t(TokenKind::Colon)] = 1;
+    isExprEnding[size_t(TokenKind::Rp)] = 1;
+    isExprEnding[size_t(TokenKind::Rb)] = 1;
+    isExprEnding[size_t(TokenKind::Rc)] = 1;
 }
 
 template<typename CharT>
@@ -545,7 +547,7 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getChar(int32_t* cp)
 // before it's ungotten.
 template<typename CharT, class AnyCharsAccess>
 int32_t
-TokenStreamSpecific<CharT, AnyCharsAccess>::getCharIgnoreEOL()
+GeneralTokenStreamChars<CharT, AnyCharsAccess>::getCharIgnoreEOL()
 {
     if (MOZ_LIKELY(userbuf.hasRawChars()))
         return userbuf.getRawChar();
@@ -565,7 +567,7 @@ TokenStreamAnyChars::undoGetChar()
 
 template<typename CharT, class AnyCharsAccess>
 void
-TokenStreamSpecific<CharT, AnyCharsAccess>::ungetChar(int32_t c)
+GeneralTokenStreamChars<CharT, AnyCharsAccess>::ungetChar(int32_t c)
 {
     if (c == EOF)
         return;
@@ -588,15 +590,31 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::ungetChar(int32_t c)
     }
 }
 
-template<typename CharT, class AnyCharsAccess>
+template<typename CharT>
 void
-TokenStreamSpecific<CharT, AnyCharsAccess>::ungetCharIgnoreEOL(int32_t c)
+TokenStreamCharsBase<CharT>::ungetCharIgnoreEOL(int32_t c)
 {
     if (c == EOF)
         return;
 
     MOZ_ASSERT(!userbuf.atStart());
     userbuf.ungetRawChar();
+}
+
+template<class AnyCharsAccess>
+void
+TokenStreamChars<char16_t, AnyCharsAccess>::ungetCodePointIgnoreEOL(uint32_t codePoint)
+{
+    MOZ_ASSERT(!userbuf.atStart());
+
+    unsigned numUnits = 0;
+    char16_t units[2];
+    unicode::UTF16Encode(codePoint, units, &numUnits);
+
+    MOZ_ASSERT(numUnits == 1 || numUnits == 2);
+
+    while (numUnits-- > 0)
+        ungetCharIgnoreEOL(units[numUnits]);
 }
 
 // Return true iff |n| raw characters can be read from this without reading past
@@ -789,7 +807,7 @@ TokenStreamAnyChars::fillExcludingContext(ErrorMetadata* err, uint32_t offset)
 bool
 TokenStreamAnyChars::hasTokenizationStarted() const
 {
-    return isCurrentTokenType(TokenKind::TOK_EOF) && !isEOF();
+    return isCurrentTokenType(TokenKind::Eof) && !isEOF();
 }
 
 void
@@ -1122,10 +1140,10 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getDirectives(bool isMultiline,
            getSourceMappingURL(isMultiline, shouldWarnDeprecated);
 }
 
-template<class AnyCharsAccess>
+template<>
 MOZ_MUST_USE bool
-TokenStreamChars<char16_t, AnyCharsAccess>::copyTokenbufTo(JSContext* cx,
-                                                           UniquePtr<char16_t[], JS::FreePolicy>* destination)
+TokenStreamCharsBase<char16_t>::copyTokenbufTo(JSContext* cx,
+                                               UniquePtr<char16_t[], JS::FreePolicy>* destination)
 {
     size_t length = tokenbuf.length();
 
@@ -1259,9 +1277,9 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::newToken(ptrdiff_t adjust)
 static bool
 IsTokenSane(Token* tp)
 {
-    // Nb: TokenKind::TOK_EOL should never be used in an actual Token;
+    // Nb: TokenKind::Eol should never be used in an actual Token;
     // it should only be returned as a TokenKind from peekTokenSameLine().
-    if (tp->type >= TokenKind::TOK_LIMIT || tp->type == TokenKind::TOK_EOL)
+    if (tp->type >= TokenKind::Limit || tp->type == TokenKind::Eol)
         return false;
 
     if (tp->pos.end < tp->pos.begin)
@@ -1270,23 +1288,6 @@ IsTokenSane(Token* tp)
     return true;
 }
 #endif
-
-template<class AnyCharsAccess>
-bool
-TokenStreamChars<char16_t, AnyCharsAccess>::matchTrailForLeadSurrogate(char16_t lead,
-                                                                       uint32_t* codePoint)
-{
-    TokenStreamSpecific* ts = asSpecific();
-
-    int32_t maybeTrail = ts->getCharIgnoreEOL();
-    if (!unicode::IsTrailSurrogate(maybeTrail)) {
-        ts->ungetCharIgnoreEOL(maybeTrail);
-        return false;
-    }
-
-    *codePoint = unicode::UTF16Decode(lead, maybeTrail);
-    return true;
-}
 
 template<>
 MOZ_MUST_USE bool
@@ -1298,26 +1299,49 @@ TokenStreamCharsBase<char16_t>::appendMultiUnitCodepointToTokenbuf(uint32_t code
     return tokenbuf.append(lead) && tokenbuf.append(trail);
 }
 
+template<class AnyCharsAccess>
+void
+TokenStreamChars<char16_t, AnyCharsAccess>::matchMultiUnitCodePointSlow(char16_t lead,
+                                                                        uint32_t* codePoint)
+{
+    MOZ_ASSERT(unicode::IsLeadSurrogate(lead),
+               "matchMultiUnitCodepoint should have ensured |lead| is a lead "
+               "surrogate");
+
+    int32_t maybeTrail = getCharIgnoreEOL();
+    if (MOZ_LIKELY(unicode::IsTrailSurrogate(maybeTrail))) {
+        *codePoint = unicode::UTF16Decode(lead, maybeTrail);
+    } else {
+        ungetCharIgnoreEOL(maybeTrail);
+        *codePoint = 0;
+    }
+}
+
 template<typename CharT, class AnyCharsAccess>
 bool
 TokenStreamSpecific<CharT, AnyCharsAccess>::putIdentInTokenbuf(const CharT* identStart)
 {
-    const CharT* tmp = userbuf.addressOfNextRawChar();
+    const CharT* const originalAddress = userbuf.addressOfNextRawChar();
     userbuf.setAddressOfNextRawChar(identStart);
+
+    auto restoreNextRawCharAddress =
+        MakeScopeExit([this, originalAddress]() {
+            this->userbuf.setAddressOfNextRawChar(originalAddress);
+        });
 
     tokenbuf.clear();
     for (;;) {
         int32_t c = getCharIgnoreEOL();
 
         uint32_t codePoint;
-        if (isMultiUnitCodepoint(c, &codePoint)) {
+        if (!matchMultiUnitCodePoint(c, &codePoint))
+            return false;
+        if (codePoint) {
             if (!unicode::IsIdentifierPart(codePoint))
                 break;
 
-            if (!appendMultiUnitCodepointToTokenbuf(codePoint)) {
-                userbuf.setAddressOfNextRawChar(tmp);
+            if (!appendMultiUnitCodepointToTokenbuf(codePoint))
                 return false;
-            }
 
             continue;
         }
@@ -1330,23 +1354,19 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::putIdentInTokenbuf(const CharT* iden
             if (MOZ_UNLIKELY(unicode::IsSupplementary(qc))) {
                 char16_t lead, trail;
                 unicode::UTF16Encode(qc, &lead, &trail);
-                if (!tokenbuf.append(lead) || !tokenbuf.append(trail)) {
-                    userbuf.setAddressOfNextRawChar(tmp);
+                if (!tokenbuf.append(lead) || !tokenbuf.append(trail))
                     return false;
-                }
+
                 continue;
             }
 
             c = qc;
         }
 
-        if (!tokenbuf.append(c)) {
-            userbuf.setAddressOfNextRawChar(tmp);
+        if (!tokenbuf.append(c))
             return false;
-        }
     }
 
-    userbuf.setAddressOfNextRawChar(tmp);
     return true;
 }
 
@@ -1360,13 +1380,13 @@ enum FirstCharKind {
     // of the tokens seen in practice.
     //
     // We represent the 'OneChar' kind with any positive value less than
-    // TokenKind::TOK_LIMIT.  This representation lets us associate
+    // TokenKind::Limit.  This representation lets us associate
     // each one-char token char16_t with a TokenKind and thus avoid
     // a subsequent char16_t-to-TokenKind conversion.
     OneChar_Min = 0,
-    OneChar_Max = size_t(TokenKind::TOK_LIMIT) - 1,
+    OneChar_Max = size_t(TokenKind::Limit) - 1,
 
-    Space = size_t(TokenKind::TOK_LIMIT),
+    Space = size_t(TokenKind::Limit),
     Ident,
     Dec,
     String,
@@ -1389,17 +1409,17 @@ enum FirstCharKind {
 // Space:   9, 11, 12, 32: '\t', '\v', '\f', ' '
 // EOL:     10, 13: '\n', '\r'
 //
-#define T_COMMA     size_t(TokenKind::TOK_COMMA)
-#define T_COLON     size_t(TokenKind::TOK_COLON)
-#define T_BITNOT    size_t(TokenKind::TOK_BITNOT)
-#define T_LP        size_t(TokenKind::TOK_LP)
-#define T_RP        size_t(TokenKind::TOK_RP)
-#define T_SEMI      size_t(TokenKind::TOK_SEMI)
-#define T_HOOK      size_t(TokenKind::TOK_HOOK)
-#define T_LB        size_t(TokenKind::TOK_LB)
-#define T_RB        size_t(TokenKind::TOK_RB)
-#define T_LC        size_t(TokenKind::TOK_LC)
-#define T_RC        size_t(TokenKind::TOK_RC)
+#define T_COMMA     size_t(TokenKind::Comma)
+#define T_COLON     size_t(TokenKind::Colon)
+#define T_BITNOT    size_t(TokenKind::BitNot)
+#define T_LP        size_t(TokenKind::Lp)
+#define T_RP        size_t(TokenKind::Rp)
+#define T_SEMI      size_t(TokenKind::Semi)
+#define T_HOOK      size_t(TokenKind::Hook)
+#define T_LB        size_t(TokenKind::Lb)
+#define T_RB        size_t(TokenKind::Rb)
+#define T_LC        size_t(TokenKind::Lc)
+#define T_RC        size_t(TokenKind::Rc)
 #define Templat     String
 #define _______     Other
 static const uint8_t firstCharKinds[] = {
@@ -1460,7 +1480,7 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
   retry:
     if (MOZ_UNLIKELY(!userbuf.hasRawChars())) {
         tp = newToken(0);
-        tp->type = TokenKind::TOK_EOF;
+        tp->type = TokenKind::Eof;
         anyCharsAccess().flags.isEOF = true;
         goto out;
     }
@@ -1500,13 +1520,17 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             goto identifier;
         }
 
-        uint32_t codePoint;
-        if (isMultiUnitCodepoint(c, &codePoint) && unicode::IsUnicodeIDStart(codePoint)) {
+        uint32_t codePoint = c;
+        if (!matchMultiUnitCodePoint(c, &codePoint))
+            goto error;
+        if (codePoint && unicode::IsUnicodeIDStart(codePoint)) {
             hadUnicodeEscape = false;
             goto identifier;
         }
 
-        goto badchar;
+        ungetCodePointIgnoreEOL(codePoint);
+        error(JSMSG_ILLEGAL_CHARACTER);
+        goto error;
     }
 
     // Get the token kind, based on the first char.  The ordering of c1kind
@@ -1558,7 +1582,9 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
                 break;
 
             uint32_t codePoint;
-            if (isMultiUnitCodepoint(c, &codePoint)) {
+            if (!matchMultiUnitCodePoint(c, &codePoint))
+                goto error;
+            if (codePoint) {
                 if (!unicode::IsIdentifierPart(codePoint))
                     break;
 
@@ -1600,7 +1626,7 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
         JSAtom* atom = atomizeChars(anyCharsAccess().cx, chars, length);
         if (!atom)
             goto error;
-        tp->type = TokenKind::TOK_NAME;
+        tp->type = TokenKind::Name;
         tp->setName(atom->asPropertyName());
         goto out;
     }
@@ -1647,9 +1673,9 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             }
 
             uint32_t codePoint;
-            if (isMultiUnitCodepoint(c, &codePoint) &&
-                unicode::IsIdentifierStart(codePoint))
-            {
+            if (!matchMultiUnitCodePoint(c, &codePoint))
+                goto error;
+            if (codePoint && unicode::IsIdentifierStart(codePoint)) {
                 reportError(JSMSG_IDSTART_AFTER_NUMBER);
                 goto error;
             }
@@ -1673,7 +1699,7 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
                 goto error;
             }
         }
-        tp->type = TokenKind::TOK_NUMBER;
+        tp->type = TokenKind::Number;
         tp->setNumber(dval, decimalPoint);
         goto out;
     }
@@ -1772,9 +1798,9 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             }
 
             uint32_t codePoint;
-            if (isMultiUnitCodepoint(c, &codePoint) &&
-                unicode::IsIdentifierStart(codePoint))
-            {
+            if (!matchMultiUnitCodePoint(c, &codePoint))
+                goto error;
+            if (codePoint && unicode::IsIdentifierStart(codePoint)) {
                 reportError(JSMSG_IDSTART_AFTER_NUMBER);
                 goto error;
             }
@@ -1788,7 +1814,7 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             goto error;
         }
 
-        tp->type = TokenKind::TOK_NUMBER;
+        tp->type = TokenKind::Number;
         tp->setNumber(dval, NoDecimal);
         goto out;
     }
@@ -1808,28 +1834,28 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
         }
         if (c == '.') {
             if (matchChar('.')) {
-                tp->type = TokenKind::TOK_TRIPLEDOT;
+                tp->type = TokenKind::TripleDot;
                 goto out;
             }
         }
         ungetCharIgnoreEOL(c);
-        tp->type = TokenKind::TOK_DOT;
+        tp->type = TokenKind::Dot;
         goto out;
 
       case '=':
         if (matchChar('='))
-            tp->type = matchChar('=') ? TokenKind::TOK_STRICTEQ : TokenKind::TOK_EQ;
+            tp->type = matchChar('=') ? TokenKind::StrictEq : TokenKind::Eq;
         else if (matchChar('>'))
-            tp->type = TokenKind::TOK_ARROW;
+            tp->type = TokenKind::Arrow;
         else
-            tp->type = TokenKind::TOK_ASSIGN;
+            tp->type = TokenKind::Assign;
         goto out;
 
       case '+':
         if (matchChar('+'))
-            tp->type = TokenKind::TOK_INC;
+            tp->type = TokenKind::Inc;
         else
-            tp->type = matchChar('=') ? TokenKind::TOK_ADDASSIGN : TokenKind::TOK_ADD;
+            tp->type = matchChar('=') ? TokenKind::AddAssign : TokenKind::Add;
         goto out;
 
       case '\\': {
@@ -1839,36 +1865,43 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             hadUnicodeEscape = true;
             goto identifier;
         }
-        goto badchar;
+
+        // We could point "into" a mistyped escape, e.g. for "\u{41H}" we could
+        // point at the 'H'.  But we don't do that now, so the character after
+        // the '\' isn't necessarily bad, so just point at the start of
+        // the actually-invalid escape.
+        ungetCharIgnoreEOL('\\');
+        error(JSMSG_BAD_ESCAPE);
+        goto error;
       }
 
       case '|':
         if (matchChar('|'))
-            tp->type = TokenKind::TOK_OR;
+            tp->type = TokenKind::Or;
 #ifdef ENABLE_PIPELINE_OPERATOR
         else if (matchChar('>'))
-            tp->type = TokenKind::TOK_PIPELINE;
+            tp->type = TokenKind::Pipeline;
 #endif
         else
-            tp->type = matchChar('=') ? TokenKind::TOK_BITORASSIGN : TokenKind::TOK_BITOR;
+            tp->type = matchChar('=') ? TokenKind::BitOrAssign : TokenKind::BitOr;
         goto out;
 
       case '^':
-        tp->type = matchChar('=') ? TokenKind::TOK_BITXORASSIGN : TokenKind::TOK_BITXOR;
+        tp->type = matchChar('=') ? TokenKind::BitXorAssign : TokenKind::BitXor;
         goto out;
 
       case '&':
         if (matchChar('&'))
-            tp->type = TokenKind::TOK_AND;
+            tp->type = TokenKind::And;
         else
-            tp->type = matchChar('=') ? TokenKind::TOK_BITANDASSIGN : TokenKind::TOK_BITAND;
+            tp->type = matchChar('=') ? TokenKind::BitAndAssign : TokenKind::BitAnd;
         goto out;
 
       case '!':
         if (matchChar('='))
-            tp->type = matchChar('=') ? TokenKind::TOK_STRICTNE : TokenKind::TOK_NE;
+            tp->type = matchChar('=') ? TokenKind::StrictNe : TokenKind::Ne;
         else
-            tp->type = TokenKind::TOK_NOT;
+            tp->type = TokenKind::Not;
         goto out;
 
       case '<':
@@ -1884,28 +1917,28 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
             }
         }
         if (matchChar('<')) {
-            tp->type = matchChar('=') ? TokenKind::TOK_LSHASSIGN : TokenKind::TOK_LSH;
+            tp->type = matchChar('=') ? TokenKind::LshAssign : TokenKind::Lsh;
         } else {
-            tp->type = matchChar('=') ? TokenKind::TOK_LE : TokenKind::TOK_LT;
+            tp->type = matchChar('=') ? TokenKind::Le : TokenKind::Lt;
         }
         goto out;
 
       case '>':
         if (matchChar('>')) {
             if (matchChar('>'))
-                tp->type = matchChar('=') ? TokenKind::TOK_URSHASSIGN : TokenKind::TOK_URSH;
+                tp->type = matchChar('=') ? TokenKind::UrshAssign : TokenKind::Ursh;
             else
-                tp->type = matchChar('=') ? TokenKind::TOK_RSHASSIGN : TokenKind::TOK_RSH;
+                tp->type = matchChar('=') ? TokenKind::RshAssign : TokenKind::Rsh;
         } else {
-            tp->type = matchChar('=') ? TokenKind::TOK_GE : TokenKind::TOK_GT;
+            tp->type = matchChar('=') ? TokenKind::Ge : TokenKind::Gt;
         }
         goto out;
 
       case '*':
         if (matchChar('*'))
-            tp->type = matchChar('=') ? TokenKind::TOK_POWASSIGN : TokenKind::TOK_POW;
+            tp->type = matchChar('=') ? TokenKind::PowAssign : TokenKind::Pow;
         else
-            tp->type = matchChar('=') ? TokenKind::TOK_MULASSIGN : TokenKind::TOK_MUL;
+            tp->type = matchChar('=') ? TokenKind::MulAssign : TokenKind::Mul;
         goto out;
 
       case '/':
@@ -2025,16 +2058,16 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
                 consumeKnownChar(c);
                 goto error;
             }
-            tp->type = TokenKind::TOK_REGEXP;
+            tp->type = TokenKind::RegExp;
             tp->setRegExpFlags(reflags);
             goto out;
         }
 
-        tp->type = matchChar('=') ? TokenKind::TOK_DIVASSIGN : TokenKind::TOK_DIV;
+        tp->type = matchChar('=') ? TokenKind::DivAssign : TokenKind::Div;
         goto out;
 
       case '%':
-        tp->type = matchChar('=') ? TokenKind::TOK_MODASSIGN : TokenKind::TOK_MOD;
+        tp->type = matchChar('=') ? TokenKind::ModAssign : TokenKind::Mod;
         goto out;
 
       case '-':
@@ -2050,15 +2083,17 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getTokenInternal(TokenKind* ttp, Mod
                     goto skipline;
             }
 
-            tp->type = TokenKind::TOK_DEC;
+            tp->type = TokenKind::Dec;
         } else {
-            tp->type = matchChar('=') ? TokenKind::TOK_SUBASSIGN : TokenKind::TOK_SUB;
+            tp->type = matchChar('=') ? TokenKind::SubAssign : TokenKind::Sub;
         }
         goto out;
 
-      badchar:
       default:
-        reportError(JSMSG_ILLEGAL_CHARACTER);
+        // We consumed a bad character/code point.  Put it back so the error
+        // location is the bad character.
+        ungetCodePointIgnoreEOL(c);
+        error(JSMSG_ILLEGAL_CHARACTER);
         goto error;
     }
 
@@ -2340,12 +2375,12 @@ TokenStreamSpecific<CharT, AnyCharsAccess>::getStringOrTemplateToken(int untilCh
         return false;
 
     if (!parsingTemplate) {
-        (*tp)->type = TokenKind::TOK_STRING;
+        (*tp)->type = TokenKind::String;
     } else {
         if (c == '$' && nc == '{')
-            (*tp)->type = TokenKind::TOK_TEMPLATE_HEAD;
+            (*tp)->type = TokenKind::TemplateHead;
         else
-            (*tp)->type = TokenKind::TOK_NO_SUBS_TEMPLATE;
+            (*tp)->type = TokenKind::NoSubsTemplate;
     }
 
     (*tp)->setAtom(atom);
@@ -2356,11 +2391,11 @@ const char*
 TokenKindToDesc(TokenKind tt)
 {
     switch (tt) {
-#define EMIT_CASE(name, desc) case TokenKind::TOK_##name: return desc;
+#define EMIT_CASE(name, desc) case TokenKind::name: return desc;
       FOR_EACH_TOKEN_KIND(EMIT_CASE)
 #undef EMIT_CASE
-      case TokenKind::TOK_LIMIT:
-        MOZ_ASSERT_UNREACHABLE("TokenKind::TOK_LIMIT should not be passed.");
+      case TokenKind::Limit:
+        MOZ_ASSERT_UNREACHABLE("TokenKind::Limit should not be passed.");
         break;
     }
 
@@ -2372,10 +2407,10 @@ const char*
 TokenKindToString(TokenKind tt)
 {
     switch (tt) {
-#define EMIT_CASE(name, desc) case TokenKind::TOK_##name: return "TokenKind::TOK_" #name;
+#define EMIT_CASE(name, desc) case TokenKind::name: return "TokenKind::" #name;
       FOR_EACH_TOKEN_KIND(EMIT_CASE)
 #undef EMIT_CASE
-      case TokenKind::TOK_LIMIT: break;
+      case TokenKind::Limit: break;
     }
 
     return "<bad TokenKind>";

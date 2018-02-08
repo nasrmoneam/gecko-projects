@@ -3415,7 +3415,7 @@ class MNewArrayCopyOnWrite
 
 class MNewArrayDynamicLength
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     CompilerObject templateObject_;
     gc::InitialHeap initialHeap_;
@@ -3494,7 +3494,7 @@ class MNewTypedArray
 
 class MNewTypedArrayDynamicLength
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     CompilerObject templateObject_;
     gc::InitialHeap initialHeap_;
@@ -3841,7 +3841,7 @@ class MNewDerivedTypedObject
   : public MTernaryInstruction,
     public MixPolicy<ObjectPolicy<0>,
                      ObjectPolicy<1>,
-                     IntPolicy<2> >::Data
+                     UnboxedInt32Policy<2> >::Data
 {
   private:
     TypedObjectPrediction prediction_;
@@ -4357,7 +4357,7 @@ class MCallDOMNative : public MCall
 // fun.apply(self, arguments)
 class MApplyArgs
   : public MTernaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, IntPolicy<1>, BoxPolicy<2> >::Data
+    public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<1>, BoxPolicy<2> >::Data
 {
   protected:
     // Monomorphic cache of single target from TI, or nullptr.
@@ -4367,6 +4367,7 @@ class MApplyArgs
       : MTernaryInstruction(classOpcode, fun, argc, self),
         target_(target)
     {
+        MOZ_ASSERT(argc->type() == MIRType::Int32);
         setResultType(MIRType::Value);
     }
 
@@ -4808,6 +4809,31 @@ class MCompare
         return compareType() == ins->toCompare()->compareType() &&
                jsop() == ins->toCompare()->jsop();
     }
+};
+
+class MSameValue
+  : public MBinaryInstruction,
+    public SameValuePolicy::Data
+{
+    MSameValue(MDefinition* left, MDefinition* right)
+      : MBinaryInstruction(classOpcode, left, right)
+    {
+        setResultType(MIRType::Boolean);
+        setMovable();
+    }
+
+  public:
+    INSTRUCTION_HEADER(SameValue)
+    TRIVIAL_NEW_WRAPPERS
+
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+    AliasSet getAliasSet() const override {
+        return AliasSet::None();
+    }
+
+    ALLOW_CLONE(MSameValue)
 };
 
 // Takes a typed value and returns an untyped value.
@@ -5670,18 +5696,21 @@ class MInt64ToFloatingPoint
     }
 };
 
-// Converts a primitive (either typed or untyped) to an int32. If the input is
-// not primitive at runtime, a bailout occurs. If the input cannot be converted
-// to an int32 without loss (i.e. "5.5" or undefined) then a bailout occurs.
-class MToInt32
+// Applies ECMA's ToNumber on a primitive (either typed or untyped) and expects
+// the result to be precisely representable as an Int32, otherwise bails.
+//
+// If the input is not primitive at runtime, a bailout occurs. If the input
+// cannot be converted to an int32 without loss (i.e. 5.5 or undefined) then a
+// bailout occurs.
+class MToNumberInt32
   : public MUnaryInstruction,
     public ToInt32Policy::Data
 {
     bool canBeNegativeZero_;
-    MacroAssembler::IntConversionInputKind conversion_;
+    IntConversionInputKind conversion_;
 
-    explicit MToInt32(MDefinition* def, MacroAssembler::IntConversionInputKind conversion =
-                                            MacroAssembler::IntConversion_Any)
+    explicit MToNumberInt32(MDefinition* def, IntConversionInputKind conversion
+                                              = IntConversionInputKind::Any)
       : MUnaryInstruction(classOpcode, def),
         canBeNegativeZero_(true),
         conversion_(conversion)
@@ -5696,7 +5725,7 @@ class MToInt32
     }
 
   public:
-    INSTRUCTION_HEADER(ToInt32)
+    INSTRUCTION_HEADER(ToNumberInt32)
     TRIVIAL_NEW_WRAPPERS
 
     MDefinition* foldsTo(TempAllocator& alloc) override;
@@ -5711,12 +5740,12 @@ class MToInt32
         canBeNegativeZero_ = negativeZero;
     }
 
-    MacroAssembler::IntConversionInputKind conversion() const {
+    IntConversionInputKind conversion() const {
         return conversion_;
     }
 
     bool congruentTo(const MDefinition* ins) const override {
-        if (!ins->isToInt32() || ins->toToInt32()->conversion() != conversion())
+        if (!ins->isToNumberInt32() || ins->toToNumberInt32()->conversion() != conversion())
             return false;
         return congruentIfOperandsEqual(ins);
     }
@@ -5731,7 +5760,7 @@ class MToInt32
     bool isConsistentFloat32Use(MUse* use) const override { return true; }
 #endif
 
-    ALLOW_CLONE(MToInt32)
+    ALLOW_CLONE(MToNumberInt32)
 };
 
 // Converts a value or typed input to a truncated int32, for use with bitwise
@@ -7527,7 +7556,7 @@ class MConcat
 
 class MCharCodeAt
   : public MBinaryInstruction,
-    public MixPolicy<StringPolicy<0>, IntPolicy<1> >::Data
+    public MixPolicy<StringPolicy<0>, UnboxedInt32Policy<1> >::Data
 {
     MCharCodeAt(MDefinition* str, MDefinition* index)
         : MBinaryInstruction(classOpcode, str, index)
@@ -7561,7 +7590,7 @@ class MCharCodeAt
 
 class MFromCharCode
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     explicit MFromCharCode(MDefinition* code)
       : MUnaryInstruction(classOpcode, code)
@@ -7591,7 +7620,7 @@ class MFromCharCode
 
 class MFromCodePoint
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     explicit MFromCodePoint(MDefinition* codePoint)
       : MUnaryInstruction(classOpcode, codePoint)
@@ -8486,7 +8515,7 @@ class MRegExpMatcher
   : public MTernaryInstruction,
     public MixPolicy<ObjectPolicy<0>,
                      StringPolicy<1>,
-                     IntPolicy<2> >::Data
+                     UnboxedInt32Policy<2> >::Data
 {
   private:
 
@@ -8518,7 +8547,7 @@ class MRegExpSearcher
   : public MTernaryInstruction,
     public MixPolicy<ObjectPolicy<0>,
                      StringPolicy<1>,
-                     IntPolicy<2> >::Data
+                     UnboxedInt32Policy<2> >::Data
 {
   private:
 
@@ -8549,7 +8578,7 @@ class MRegExpTester
   : public MTernaryInstruction,
     public MixPolicy<ObjectPolicy<0>,
                      StringPolicy<1>,
-                     IntPolicy<2> >::Data
+                     UnboxedInt32Policy<2> >::Data
 {
   private:
 
@@ -8696,7 +8725,7 @@ class MStringReplace
 
 class MSubstr
   : public MTernaryInstruction,
-    public MixPolicy<StringPolicy<0>, IntPolicy<1>, IntPolicy<2>>::Data
+    public MixPolicy<StringPolicy<0>, UnboxedInt32Policy<1>, UnboxedInt32Policy<2>>::Data
 {
   private:
 
@@ -9013,7 +9042,7 @@ class MConvertElementsToDoubles
 // double. Else return the original value.
 class MMaybeToDoubleElement
   : public MBinaryInstruction,
-    public IntPolicy<1>::Data
+    public UnboxedInt32Policy<1>::Data
 {
     MMaybeToDoubleElement(MDefinition* elements, MDefinition* value)
       : MBinaryInstruction(classOpcode, elements, value)
@@ -9451,7 +9480,7 @@ class MNot
 // (unsigned comparisons may be used).
 class MBoundsCheck
   : public MBinaryInstruction,
-    public MixPolicy<IntPolicy<0>, IntPolicy<1>>::Data
+    public MixPolicy<UnboxedInt32Policy<0>, UnboxedInt32Policy<1>>::Data
 {
     // Range over which to perform the bounds check, may be modified by GVN.
     int32_t minimum_;
@@ -9516,7 +9545,7 @@ class MBoundsCheck
 // Bailout if index < minimum.
 class MBoundsCheckLower
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     int32_t minimum_;
     bool fallible_;
@@ -9547,6 +9576,38 @@ class MBoundsCheckLower
         return fallible_;
     }
     void collectRangeInfoPreTrunc() override;
+};
+
+class MSpectreMaskIndex
+  : public MBinaryInstruction,
+    public MixPolicy<UnboxedInt32Policy<0>, UnboxedInt32Policy<1>>::Data
+{
+    MSpectreMaskIndex(MDefinition* index, MDefinition* length)
+      : MBinaryInstruction(classOpcode, index, length)
+    {
+        setGuard();
+        setMovable();
+        MOZ_ASSERT(index->type() == MIRType::Int32);
+        MOZ_ASSERT(length->type() == MIRType::Int32);
+
+        // Returns the masked index.
+        setResultType(MIRType::Int32);
+    }
+
+  public:
+    INSTRUCTION_HEADER(SpectreMaskIndex)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, index), (1, length))
+
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+    virtual AliasSet getAliasSet() const override {
+        return AliasSet::None();
+    }
+    void computeRange(TempAllocator& alloc) override;
+
+    ALLOW_CLONE(MSpectreMaskIndex)
 };
 
 // Instructions which access an object's elements can either do so on a
@@ -10147,7 +10208,7 @@ class MArrayPush
 // Array.prototype.slice on a dense array.
 class MArraySlice
   : public MTernaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, IntPolicy<1>, IntPolicy<2>>::Data
+    public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<1>, UnboxedInt32Policy<2>>::Data
 {
     CompilerObject templateObj_;
     gc::InitialHeap initialHeap_;
@@ -12258,7 +12319,7 @@ class MCallSetElement
 
 class MCallInitElementArray
   : public MTernaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, IntPolicy<1>, BoxPolicy<2> >::Data
+    public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<1>, BoxPolicy<2> >::Data
 {
     MCallInitElementArray(MDefinition* obj, MDefinition* index, MDefinition* val)
       : MTernaryInstruction(classOpcode, obj, index, val)
@@ -12887,18 +12948,18 @@ class MInstanceOf
 };
 
 // Implementation for instanceof operator with unknown rhs.
-class MCallInstanceOf
+class MInstanceOfCache
   : public MBinaryInstruction,
     public MixPolicy<BoxPolicy<0>, ObjectPolicy<1> >::Data
 {
-    MCallInstanceOf(MDefinition* obj, MDefinition* proto)
+    MInstanceOfCache(MDefinition* obj, MDefinition* proto)
       : MBinaryInstruction(classOpcode, obj, proto)
     {
         setResultType(MIRType::Boolean);
     }
 
   public:
-    INSTRUCTION_HEADER(CallInstanceOf)
+    INSTRUCTION_HEADER(InstanceOfCache)
     TRIVIAL_NEW_WRAPPERS
 };
 
@@ -12935,7 +12996,7 @@ class MArgumentsLength : public MNullaryInstruction
 // This MIR instruction is used to get an argument from the actual arguments.
 class MGetFrameArgument
   : public MUnaryInstruction,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     bool scriptHasSetArg_;
 
@@ -13037,7 +13098,7 @@ class MRestCommon
 class MRest
   : public MUnaryInstruction,
     public MRestCommon,
-    public IntPolicy<0>::Data
+    public UnboxedInt32Policy<0>::Data
 {
     MRest(TempAllocator& alloc, CompilerConstraintList* constraints, MDefinition* numActuals,
           unsigned numFormals, ArrayObject* templateObject)
@@ -13232,7 +13293,7 @@ class MPostWriteBarrier : public MBinaryInstruction, public ObjectPolicy<0>::Dat
 // index, update the generational store buffer if the value is in the nursery
 // and object is in the tenured heap.
 class MPostWriteElementBarrier : public MTernaryInstruction
-                               , public MixPolicy<ObjectPolicy<0>, IntPolicy<2>>::Data
+                               , public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<2>>::Data
 {
     MPostWriteElementBarrier(MDefinition* obj, MDefinition* value, MDefinition* index)
       : MTernaryInstruction(classOpcode, obj, value, index)
@@ -13853,7 +13914,7 @@ public:
 
 class MCompareExchangeTypedArrayElement
   : public MQuaternaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, IntPolicy<1>, TruncateToInt32Policy<2>, TruncateToInt32Policy<3>>::Data
+    public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<1>, TruncateToInt32Policy<2>, TruncateToInt32Policy<3>>::Data
 {
     Scalar::Type arrayType_;
 
@@ -13888,7 +13949,7 @@ class MCompareExchangeTypedArrayElement
 
 class MAtomicExchangeTypedArrayElement
   : public MTernaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, IntPolicy<1>, TruncateToInt32Policy<2>>::Data
+    public MixPolicy<ObjectPolicy<0>, UnboxedInt32Policy<1>, TruncateToInt32Policy<2>>::Data
 {
     Scalar::Type arrayType_;
 
@@ -13920,7 +13981,7 @@ class MAtomicExchangeTypedArrayElement
 
 class MAtomicTypedArrayElementBinop
   : public MTernaryInstruction,
-    public MixPolicy< ObjectPolicy<0>, IntPolicy<1>, TruncateToInt32Policy<2> >::Data
+    public MixPolicy< ObjectPolicy<0>, UnboxedInt32Policy<1>, TruncateToInt32Policy<2> >::Data
 {
   private:
     AtomicOp op_;
@@ -14060,7 +14121,7 @@ class MDebugCheckSelfHosted
 
 class MFinishBoundFunctionInit
   : public MTernaryInstruction,
-    public MixPolicy<ObjectPolicy<0>, ObjectPolicy<1>, IntPolicy<2>>::Data
+    public MixPolicy<ObjectPolicy<0>, ObjectPolicy<1>, UnboxedInt32Policy<2>>::Data
 {
     MFinishBoundFunctionInit(MDefinition* bound, MDefinition* target, MDefinition* argCount)
       : MTernaryInstruction(classOpcode, bound, target, argCount)

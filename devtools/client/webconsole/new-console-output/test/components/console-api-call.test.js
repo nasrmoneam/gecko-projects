@@ -270,7 +270,7 @@ describe("ConsoleAPICall component:", () => {
     });
 
     it("toggle the group when the collapse button is clicked", () => {
-      const store = setupStore([]);
+      const store = setupStore();
       store.dispatch = sinon.spy();
       const message = stubPreparedMessages.get("console.group('bar')");
 
@@ -303,6 +303,60 @@ describe("ConsoleAPICall component:", () => {
         id: message.id,
         type: MESSAGE_OPEN
       });
+    });
+
+    it("toggle the group when the group name is clicked", () => {
+      const store = setupStore();
+      store.dispatch = sinon.spy();
+      const message = stubPreparedMessages.get("console.group('bar')");
+
+      let wrapper = mount(Provider({store},
+        ConsoleApiCall({
+          message,
+          open: true,
+          dispatch: store.dispatch,
+          serviceContainer,
+        })
+      ));
+      wrapper.find(".message-flex-body").simulate("click");
+      let call = store.dispatch.getCall(0);
+      expect(call.args[0]).toEqual({
+        id: message.id,
+        type: MESSAGE_CLOSE
+      });
+
+      wrapper = mount(Provider({store},
+        ConsoleApiCall({
+          message,
+          open: false,
+          dispatch: store.dispatch,
+          serviceContainer,
+        })
+      ));
+      wrapper.find(".message-flex-body").simulate("click");
+      call = store.dispatch.getCall(1);
+      expect(call.args[0]).toEqual({
+        id: message.id,
+        type: MESSAGE_OPEN
+      });
+    });
+
+    it("doesn't toggle the group when the location link is clicked", () => {
+      const store = setupStore();
+      store.dispatch = sinon.spy();
+      const message = stubPreparedMessages.get("console.group('bar')");
+
+      let wrapper = mount(Provider({store},
+        ConsoleApiCall({
+          message,
+          open: true,
+          dispatch: store.dispatch,
+          serviceContainer,
+        })
+      ));
+      wrapper.find(".frame-link-source").simulate("click");
+      let call = store.dispatch.getCall(0);
+      expect(call).toNotExist();
     });
   });
 

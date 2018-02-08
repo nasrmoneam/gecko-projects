@@ -23,13 +23,12 @@
 #include "nsQueryObject.h"
 #include "nsIContentInlines.h"
 #include "nsIContentViewer.h"
+#ifdef MOZ_OLD_STYLE
 #include "mozilla/css/Declaration.h"
+#endif
 #include "nsIDocument.h"
 #include "nsIDocumentEncoder.h"
-#include "nsIDOMHTMLDocument.h"
-#include "nsIDOMAttr.h"
 #include "nsIDOMDocumentFragment.h"
-#include "nsIDOMHTMLElement.h"
 #include "nsIDOMWindow.h"
 #include "nsIDOMDocument.h"
 #include "nsMappedAttributes.h"
@@ -174,7 +173,6 @@ NS_IMPL_ADDREF_INHERITED(nsGenericHTMLElement, nsGenericHTMLElementBase)
 NS_IMPL_RELEASE_INHERITED(nsGenericHTMLElement, nsGenericHTMLElementBase)
 
 NS_INTERFACE_MAP_BEGIN(nsGenericHTMLElement)
-  NS_INTERFACE_MAP_ENTRY(nsIDOMHTMLElement)
   NS_INTERFACE_MAP_ENTRY(nsIDOMElement)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNode)
 NS_INTERFACE_MAP_END_INHERITING(nsGenericHTMLElementBase)
@@ -344,12 +342,10 @@ nsGenericHTMLElement::GetOffsetRect(CSSIntRect& aRect)
       // frame for the HTML element so we fail to find the body in the
       // parent chain. We want the offset parent in this case to be
       // the body, so we just get the body element from the document.
-
-      nsCOMPtr<nsIDOMHTMLDocument> html_doc(do_QueryInterface(GetComposedDoc()));
-
-      if (html_doc) {
-        offsetParent = static_cast<nsHTMLDocument*>(html_doc.get())->GetBody();
-      }
+      //
+      // We use GetBodyElement() here, not GetBody(), because we don't want to
+      // end up with framesets here.
+      offsetParent = GetComposedDoc()->GetBodyElement();
     }
   }
 
@@ -560,7 +556,7 @@ nsGenericHTMLElement::FindAncestorForm(HTMLFormElement* aCurrentForm)
         // anonymous.  Check for this the hard way.
         for (nsIContent* child = this; child != content;
              child = child->GetParent()) {
-          NS_ASSERTION(child->GetParent()->IndexOf(child) != -1,
+          NS_ASSERTION(child->GetParent()->ComputeIndexOf(child) != -1,
                        "Walked too far?");
         }
       }
@@ -2683,26 +2679,6 @@ nsGenericHTMLElement::GetAssociatedEditor()
   return textEditor.forget();
 }
 
-bool
-nsGenericHTMLElement::IsCurrentBodyElement()
-{
-  // TODO Bug 698498: Should this handle the case where GetBody returns a
-  //                  frameset?
-  if (!IsHTMLElement(nsGkAtoms::body)) {
-    return false;
-  }
-
-  nsCOMPtr<nsIDOMHTMLDocument> htmlDocument =
-    do_QueryInterface(GetUncomposedDoc());
-  if (!htmlDocument) {
-    return false;
-  }
-
-  nsCOMPtr<nsIDOMHTMLElement> htmlElement;
-  htmlDocument->GetBody(getter_AddRefs(htmlElement));
-  return htmlElement == static_cast<HTMLBodyElement*>(this);
-}
-
 // static
 void
 nsGenericHTMLElement::SyncEditorsOnSubtree(nsIContent* content)
@@ -3076,7 +3052,7 @@ nsGenericHTMLElement::GetInnerText(mozilla::dom::DOMString& aValue,
                                    mozilla::ErrorResult& aError)
 {
   if (!GetPrimaryFrame(FlushType::Layout)) {
-    nsIPresShell* presShell = nsComputedDOMStyle::GetPresShellForContent(this);
+    nsIPresShell* presShell = nsContentUtils::GetPresShellForContent(this);
     // NOTE(emilio): We need to check the presshell is initialized in order to
     // ensure the document is styled.
     if (!presShell || !presShell->DidInitialize() ||
@@ -3131,7 +3107,7 @@ nsGenericHTMLElement::SetInnerText(const nsAString& aValue)
       str.Truncate();
       already_AddRefed<mozilla::dom::NodeInfo> ni =
         NodeInfo()->NodeInfoManager()->GetNodeInfo(nsGkAtoms::br,
-          nullptr, kNameSpaceID_XHTML, nsIDOMNode::ELEMENT_NODE);
+          nullptr, kNameSpaceID_XHTML, ELEMENT_NODE);
       RefPtr<HTMLBRElement> br = new HTMLBRElement(ni);
       AppendChildTo(br, true);
     } else {

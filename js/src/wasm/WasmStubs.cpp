@@ -137,7 +137,7 @@ SetupABIArguments(MacroAssembler& masm, const FuncExport& fe, Register argv, Reg
                 masm.storePtr(scratch, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
                 break;
               case MIRType::Int64: {
-                Register sp = masm.getStackPointer();
+                RegisterOrSP sp = masm.getStackPointer();
 #if JS_BITS_PER_WORD == 32
                 masm.load32(LowWord(src), scratch);
                 masm.store32(scratch, LowWord(Address(sp, iter->offsetFromArgBase())));
@@ -807,8 +807,7 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
       case ExprType::Void:
         break;
       case ExprType::I32:
-        masm.convertValueToInt32(JSReturnOperand, ReturnDoubleReg, ReturnReg, &oolConvert,
-                                 /* -0 check */ false);
+        masm.truncateValueToInt32(JSReturnOperand, ReturnDoubleReg, ReturnReg, &oolConvert);
         break;
       case ExprType::I64:
         masm.breakpoint();
@@ -1366,6 +1365,8 @@ wasm::GenerateStubs(const ModuleEnvironment& env, const FuncImportVector& import
 
     Label throwLabel;
 
+    JitSpew(JitSpew_Codegen, "# Emitting wasm import stubs");
+
     for (uint32_t funcIndex = 0; funcIndex < imports.length(); funcIndex++) {
         const FuncImport& fi = imports[funcIndex];
 
@@ -1382,6 +1383,8 @@ wasm::GenerateStubs(const ModuleEnvironment& env, const FuncImportVector& import
             return false;
     }
 
+    JitSpew(JitSpew_Codegen, "# Emitting wasm export stubs");
+
     for (const FuncExport& fe : exports) {
         Offsets offsets;
         if (!GenerateInterpEntry(masm, fe, &offsets))
@@ -1389,6 +1392,8 @@ wasm::GenerateStubs(const ModuleEnvironment& env, const FuncImportVector& import
         if (!code->codeRanges.emplaceBack(CodeRange::InterpEntry, fe.funcIndex(), offsets))
             return false;
     }
+
+    JitSpew(JitSpew_Codegen, "# Emitting wasm trap stubs");
 
     for (Trap trap : MakeEnumeratedRange(Trap::Limit)) {
         switch (trap) {
@@ -1418,6 +1423,8 @@ wasm::GenerateStubs(const ModuleEnvironment& env, const FuncImportVector& import
     }
 
     Offsets offsets;
+
+    JitSpew(JitSpew_Codegen, "# Emitting wasm exit stubs");
 
     if (!GenerateOutOfBoundsExit(masm, &throwLabel, &offsets))
         return false;

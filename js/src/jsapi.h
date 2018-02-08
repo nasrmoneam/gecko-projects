@@ -1117,6 +1117,7 @@ class JS_PUBLIC_API(ContextOptions) {
 #ifdef FUZZING
         , fuzzing_(false)
 #endif
+        , expressionClosures_(false)
     {
     }
 
@@ -1272,6 +1273,12 @@ class JS_PUBLIC_API(ContextOptions) {
     }
 #endif
 
+    bool expressionClosures() const { return expressionClosures_; }
+    ContextOptions& setExpressionClosures(bool flag) {
+        expressionClosures_ = flag;
+        return *this;
+    }
+
     void disableOptionsForSafeMode() {
         setBaseline(false);
         setIon(false);
@@ -1302,6 +1309,7 @@ class JS_PUBLIC_API(ContextOptions) {
 #ifdef FUZZING
     bool fuzzing_ : 1;
 #endif
+    bool expressionClosures_ : 1;
 
 };
 
@@ -3668,6 +3676,7 @@ class JS_FRIEND_API(TransitiveCompileOptions)
         canLazilyParse(true),
         strictOption(false),
         extraWarningsOption(false),
+        expressionClosuresOption(false),
         werrorOption(false),
         asmJSOption(AsmJSOption::Disabled),
         throwOnAsmJSValidationFailureOption(false),
@@ -3702,6 +3711,7 @@ class JS_FRIEND_API(TransitiveCompileOptions)
     bool canLazilyParse;
     bool strictOption;
     bool extraWarningsOption;
+    bool expressionClosuresOption;
     bool werrorOption;
     AsmJSOption asmJSOption;
     bool throwOnAsmJSValidationFailureOption;
@@ -3740,6 +3750,7 @@ class JS_FRIEND_API(ReadOnlyCompileOptions) : public TransitiveCompileOptions
         column(0),
         scriptSourceOffset(0),
         isRunOnce(false),
+        nonSyntacticScope(false),
         noScriptRval(false)
     { }
 
@@ -3775,6 +3786,7 @@ class JS_FRIEND_API(ReadOnlyCompileOptions) : public TransitiveCompileOptions
     unsigned scriptSourceOffset;
     // isRunOnce only applies to non-function scripts.
     bool isRunOnce;
+    bool nonSyntacticScope;
     bool noScriptRval;
 
   private:
@@ -3844,6 +3856,7 @@ class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
     OwningCompileOptions& setSelfHostingMode(bool shm) { selfHostingMode = shm; return *this; }
     OwningCompileOptions& setCanLazilyParse(bool clp) { canLazilyParse = clp; return *this; }
     OwningCompileOptions& setSourceIsLazy(bool l) { sourceIsLazy = l; return *this; }
+    OwningCompileOptions& setNonSyntacticScope(bool n) { nonSyntacticScope = n; return *this; }
     OwningCompileOptions& setIntroductionType(const char* t) { introductionType = t; return *this; }
     bool setIntroductionInfo(JSContext* cx, const char* introducerFn, const char* intro,
                              unsigned line, JSScript* script, uint32_t offset)
@@ -3936,6 +3949,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
     CompileOptions& setSelfHostingMode(bool shm) { selfHostingMode = shm; return *this; }
     CompileOptions& setCanLazilyParse(bool clp) { canLazilyParse = clp; return *this; }
     CompileOptions& setSourceIsLazy(bool l) { sourceIsLazy = l; return *this; }
+    CompileOptions& setNonSyntacticScope(bool n) { nonSyntacticScope = n; return *this; }
     CompileOptions& setIntroductionType(const char* t) { introductionType = t; return *this; }
     CompileOptions& setIntroductionInfo(const char* introducerFn, const char* intro,
                                         unsigned line, JSScript* script, uint32_t offset)
@@ -4591,6 +4605,11 @@ class JS_PUBLIC_API(StreamConsumer)
     // contract described above.
     enum CloseReason { EndOfFile, Error };
     virtual void streamClosed(CloseReason reason) = 0;
+
+    // Provides optional stream attributes such as base or source mapping URLs.
+    // Necessarily called before consumeChunk() or streamClosed(). The caller
+    // retains ownership of the given strings.
+    virtual void noteResponseURLs(const char* maybeUrl, const char* maybeSourceMapUrl) = 0;
 };
 
 enum class MimeType { Wasm };

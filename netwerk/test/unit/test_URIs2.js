@@ -1,5 +1,5 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
-Components.utils.import("resource://gre/modules/NetUtil.jsm");
+ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var gIoService = Components.classes["@mozilla.org/network/io-service;1"]
                            .getService(Components.interfaces.nsIIOService);
@@ -625,7 +625,7 @@ function do_test_immutable(aTest) {
 
   var URI = NetUtil.newURI(aTest.spec);
   // All the non-readonly attributes on nsIURI.idl:
-  var propertiesToCheck = ["spec", "scheme", "userPass", "username", "password",
+  var propertiesToCheck = ["scheme", "userPass", "username", "password",
                            "hostPort", "host", "port", "pathQueryRef", "query", "ref"];
 
   propertiesToCheck.forEach(function(aProperty) {

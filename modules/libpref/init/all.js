@@ -88,6 +88,15 @@ pref("browser.cache.frecency_half_life_hours", 6);
 pref("browser.cache.max_shutdown_io_lag", 2);
 
 pref("browser.cache.offline.enable",           true);
+
+// Nightly and Early Beta will have AppCache disabled by default
+// Stable will remain enabled until Firefox 62.
+#ifdef EARLY_BETA_OR_EARLIER
+pref("browser.cache.offline.insecure.enable",  false);
+#else
+pref("browser.cache.offline.insecure.enable",  true);
+#endif
+
 // enable offline apps by default, disable prompt
 pref("offline-apps.allow_by_default",          true);
 
@@ -144,9 +153,6 @@ pref("dom.select_events.textcontrols.enabled", true);
 #else
 pref("dom.select_events.textcontrols.enabled", false);
 #endif
-
-// Whether or not Web Workers are enabled.
-pref("dom.workers.enabled", true);
 
 // The number of workers per domain allowed to run concurrently.
 // We're going for effectively infinite, while preventing abuse.
@@ -205,6 +211,11 @@ pref("dom.gamepad.haptic_feedback.enabled", true);
 // even during composition (keypress events are never fired during composition
 // even if this is true).
 pref("dom.keyboardevent.dispatch_during_composition", false);
+
+// If this is true, TextEventDispatcher dispatches keypress event with setting
+// WidgetEvent::mFlags::mOnlySystemGroupDispatchInContent to true if it won't
+// cause inputting printable character.
+pref("dom.keyboardevent.keypress.dispatch_non_printable_keys_only_system_group_in_content", false);
 
 // Whether to run add-on code in different compartments from browser code. This
 // causes a separate compartment for each (addon, global) combination, which may
@@ -441,7 +452,7 @@ pref("media.suspend-bkgnd-video.enabled", true);
 pref("media.suspend-bkgnd-video.delay-ms", 10000);
 // Resume video decoding when the cursor is hovering on a background tab to
 // reduce the resume latency and improve the user experience.
-pref("media.resume-bkgnd-video-on-tabhover", true);;
+pref("media.resume-bkgnd-video-on-tabhover", true);
 
 // Whether to enable media seamless looping.
 pref("media.seamless-looping", true);
@@ -476,6 +487,12 @@ pref("media.peerconnection.video.vp9_preferred", false);
 pref("media.getusermedia.aec", 1);
 pref("media.getusermedia.browser.enabled", false);
 pref("media.getusermedia.channels", 0);
+#if defined(ANDROID)
+pref("media.getusermedia.camera.off_while_disabled.enabled", false);
+#else
+pref("media.getusermedia.camera.off_while_disabled.enabled", true);
+#endif
+pref("media.getusermedia.camera.off_while_disabled.delay_ms", 3000);
 // Desktop is typically VGA capture or more; and qm_select will not drop resolution
 // below 1/2 in each dimension (or so), so QVGA (320x200) is the lowest here usually.
 pref("media.peerconnection.video.min_bitrate", 0);
@@ -502,6 +519,7 @@ pref("media.peerconnection.ice.trickle_grace_period", 5000);
 pref("media.peerconnection.ice.no_host", false);
 pref("media.peerconnection.ice.default_address_only", false);
 pref("media.peerconnection.ice.proxy_only", false);
+pref("media.peerconnection.rtpsourcesapi.enabled", true);
 
 // These values (aec, agc, and noise) are from media/webrtc/trunk/webrtc/common_types.h
 // kXxxUnchanged = 0, kXxxDefault = 1, and higher values are specific to each
@@ -629,13 +647,11 @@ pref("media.decoder.skip-to-next-key-frame.enabled", true);
 // "verbose", "normal" and "" (log disabled).
 pref("media.cubeb.logging_level", "");
 
-#ifdef NIGHTLY_BUILD
 // Cubeb sandbox (remoting) control
-#ifdef XP_MACOSX
-pref("media.cubeb.sandbox", false);
-#else
+#ifdef XP_LINUX
 pref("media.cubeb.sandbox", true);
-#endif
+#else
+pref("media.cubeb.sandbox", false);
 #endif
 
 // Set to true to force demux/decode warnings to be treated as errors.
@@ -893,7 +909,7 @@ pref("gfx.webrender.program-binary", true);
 
 pref("gfx.webrender.highlight-painted-layers", false);
 pref("gfx.webrender.blob-images", 2);
-pref("gfx.webrender.hit-test", false);
+pref("gfx.webrender.hit-test", true);
 
 // WebRender debugging utilities.
 pref("gfx.webrender.debug.texture-cache", false);
@@ -1289,14 +1305,10 @@ pref("dom.min_timeout_value", 4);
 pref("dom.min_background_timeout_value", 1000);
 // Timeout clamp in ms for tracking timeouts we clamp
 // Note that this requires the privacy.trackingprotection.annotate_channels pref to be on in order to have any effect.
-#ifdef NIGHTLY_BUILD
-pref("dom.min_tracking_timeout_value", 10000);
-#else
 pref("dom.min_tracking_timeout_value", 4);
-#endif
 // And for background windows
 // Note that this requires the privacy.trackingprotection.annotate_channels pref to be on in order to have any effect.
-pref("dom.min_tracking_background_timeout_value", 10000);
+pref("dom.min_tracking_background_timeout_value", 4);
 // Delay in ms from document load until we start throttling background timeouts.
 pref("dom.timeout.throttling_delay", 30000);
 
@@ -1702,10 +1714,14 @@ pref("network.http.accept.default", "text/html,application/xhtml+xml,application
 // Prefs allowing granular control of referers
 // 0=don't send any, 1=send only on clicks, 2=send on image requests as well
 pref("network.http.sendRefererHeader",      2);
-// Set the default Referrer Policy to be used unless overriden by the site
+// Set the default Referrer Policy; to be used unless overriden by the site
 // 0=no-referrer, 1=same-origin, 2=strict-origin-when-cross-origin,
 // 3=no-referrer-when-downgrade
-pref("network.http.referer.userControlPolicy", 3);
+pref("network.http.referer.defaultPolicy", 3);
+// Set the Private Browsing Default Referrer Policy;
+// to be used unless overriden by the site;
+// values are identical to defaultPolicy above
+pref("network.http.referer.defaultPolicy.pbmode", 2);
 // false=real referer, true=spoof referer (use target URI as referer)
 pref("network.http.referer.spoofSource", false);
 // false=allow onion referer, true=hide onion referer (use empty referer)
@@ -1854,6 +1870,7 @@ pref("network.http.active_tab_priority", true);
 // per Section 4.7 "Low-Latency Data Service Class".
 pref("network.ftp.data.qos", 0);
 pref("network.ftp.control.qos", 0);
+pref("network.ftp.enabled", true);
 
 // The max time to spend on xpcom events between two polls in ms.
 pref("network.sts.max_time_for_events_between_two_polls", 100);
@@ -2421,7 +2438,7 @@ pref("intl.hyphenation-alias.nb-*", "nb");
 pref("intl.hyphenation-alias.nn-*", "nn");
 
 // All prefs of default font should be "auto".
-pref("font.name.serif.ar", "");;
+pref("font.name.serif.ar", "");
 pref("font.name.sans-serif.ar", "");
 pref("font.name.monospace.ar", "");
 pref("font.name.cursive.ar", "");
@@ -2576,7 +2593,6 @@ pref("font.blacklist.underline_offset", "FangSong,Gulim,GulimChe,MingLiU,MingLiU
 
 pref("security.directory",              "");
 
-pref("signed.applets.codebase_principal_support", false);
 // security-sensitive dialogs should delay button enabling. In milliseconds.
 pref("security.dialog_enable_delay", 1000);
 pref("security.notification_enable_delay", 500);
@@ -2609,9 +2625,6 @@ pref("security.sri.enable", true);
 
 // Block scripts with wrong MIME type such as image/ or video/.
 pref("security.block_script_with_wrong_mime", true);
-
-// Block images of wrong MIME for XCTO: nosniff.
-pref("security.xcto_nosniff_block_images", false);
 
 // OCSP must-staple
 pref("security.ssl.enable_ocsp_must_staple", true);
@@ -2887,6 +2900,10 @@ pref("bidi.browser.ui", false);
 pref("layout.word_select.eat_space_to_next_word", false);
 pref("layout.word_select.stop_at_punctuation", true);
 
+// Whether underscore should be treated as a word-breaking character for
+// word selection/arrow-key movement purposes.
+pref("layout.word_select.stop_at_underscore", false);
+
 // controls caret style and word-delete during text selection
 // 0 = use platform default
 // 1 = caret moves and blinks as when there is no selection; word
@@ -2922,6 +2939,9 @@ pref("layout.css.dpi", -1);
 // on Mac). A positive value is used as-is. This effectively controls the size
 // of a CSS "px". This is only used for windows on the screen, not for printing.
 pref("layout.css.devPixelsPerPx", "-1.0");
+
+// Is support for CSS individual transform enabled?
+pref("layout.css.individual-transform.enabled", false);
 
 // Is support for CSS initial-letter property enabled?
 pref("layout.css.initial-letter.enabled", false);
@@ -3004,6 +3024,10 @@ pref("layout.css.frames-timing.enabled", true);
 #ifndef RELEASE_OR_BETA
 pref("layout.css.emulate-moz-box-with-flex", false);
 #endif
+
+// Is the paint-order property supported for HTML text? (It is always supported
+// for SVG, provided it is enabled at all; see "svg.paint-order.enabled".)
+pref("layout.css.paint-order.enabled", false);
 
 // Are sets of prefixed properties supported?
 pref("layout.css.prefixes.border-image", true);
@@ -3338,8 +3362,12 @@ pref("dom.ipc.processCount.file", 1);
 // WebExtensions only support a single extension process.
 pref("dom.ipc.processCount.extension", 1);
 
-// Don't use a native event loop in the content process.
+// Whether a native event loop should be used in the content process.
+#if defined(XP_WIN) && defined(NIGHTLY_BUILD)
+pref("dom.ipc.useNativeEventProcessing.content", false);
+#else
 pref("dom.ipc.useNativeEventProcessing.content", true);
+#endif
 
 // Quantum DOM scheduling:
 pref("dom.ipc.scheduler", false);
@@ -4816,11 +4844,14 @@ pref("network.tcp.keepalive.retry_interval", 1); // seconds
 pref("network.tcp.keepalive.probe_count", 4);
 #endif
 
-#if defined(XP_WIN) || defined(XP_MACOSX)
+#if !defined(EARLY_BETA_OR_EARLIER)
+pref("network.tcp.tcp_fastopen_enable", false);
+#elif  defined(XP_WIN) || defined(XP_MACOSX)
 pref("network.tcp.tcp_fastopen_enable", true);
 #else
 pref("network.tcp.tcp_fastopen_enable", false);
 #endif
+
 pref("network.tcp.tcp_fastopen_consecutive_failure_limit", 5);
 // We are trying to detect stalled tcp connections that use TFO and TLS
 // (bug 1395494).
@@ -5025,6 +5056,9 @@ pref("extensions.webextensions.remote", false);
 // purposes only. Setting this to false will break moz-extension URI loading
 // unless other process sandboxing and extension remoting prefs are changed.
 pref("extensions.webextensions.protocol.remote", true);
+
+// Disable tab hiding API by default.
+pref("extensions.webextensions.tabhide.enabled", false);
 
 // Report Site Issue button
 pref("extensions.webcompat-reporter.newIssueEndpoint", "https://webcompat.com/issues/new");
@@ -5402,7 +5436,7 @@ pref("urlclassifier.trackingTable", "test-track-simple,base-track-digest256");
 pref("urlclassifier.trackingWhitelistTable", "test-trackwhite-simple,mozstd-trackwhite-digest256");
 
 // These tables will never trigger a gethash call.
-pref("urlclassifier.disallow_completions", "test-malware-simple,test-harmful-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple,goog-downloadwhite-digest256,base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256,goog-passwordwhite-proto");
+pref("urlclassifier.disallow_completions", "test-malware-simple,test-harmful-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple,goog-downloadwhite-digest256,base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256,goog-passwordwhite-proto,ads-track-digest256,social-track-digest256,analytics-track-digest256");
 
 // Number of random entries to send with a gethash request
 pref("urlclassifier.gethashnoise", 4);
@@ -5434,11 +5468,7 @@ pref("browser.safebrowsing.id", "Firefox");
 #endif
 
 // Download protection
-#ifdef MOZILLA_OFFICIAL
 pref("browser.safebrowsing.downloads.enabled", true);
-#else
-pref("browser.safebrowsing.downloads.enabled", false);
-#endif
 pref("browser.safebrowsing.downloads.remote.enabled", true);
 pref("browser.safebrowsing.downloads.remote.timeout_ms", 10000);
 pref("browser.safebrowsing.downloads.remote.url", "https://sb-ssl.google.com/safebrowsing/clientreport/download?key=%GOOGLE_API_KEY%");
@@ -5478,7 +5508,7 @@ pref("browser.safebrowsing.reportPhishURL", "https://%LOCALE%.phish-report.mozil
 
 // Mozilla Safe Browsing provider (for tracking protection and plugin blocking)
 pref("browser.safebrowsing.provider.mozilla.pver", "2.2");
-pref("browser.safebrowsing.provider.mozilla.lists", "base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256");
+pref("browser.safebrowsing.provider.mozilla.lists", "base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256,ads-track-digest256,social-track-digest256,analytics-track-digest256");
 pref("browser.safebrowsing.provider.mozilla.updateURL", "https://shavar.services.mozilla.com/downloads?client=SAFEBROWSING_ID&appver=%MAJOR_VERSION%&pver=2.2");
 pref("browser.safebrowsing.provider.mozilla.gethashURL", "https://shavar.services.mozilla.com/gethash?client=SAFEBROWSING_ID&appver=%MAJOR_VERSION%&pver=2.2");
 // Set to a date in the past to force immediate download in new profiles.
@@ -5718,11 +5748,6 @@ pref("media.gmp.insecure.allow", false);
 // HTML <dialog> element
 pref("dom.dialog_element.enabled", false);
 
-// Secure Element API
-#ifdef MOZ_SECUREELEMENT
-pref("dom.secureelement.enabled", false);
-#endif
-
 // Allow control characters appear in composition string.
 // When this is false, control characters except
 // CHARACTER TABULATION (horizontal tab) are removed from
@@ -5788,9 +5813,6 @@ pref("media.block-autoplay-until-in-foreground", true);
 // Is Stylo CSS support built and enabled?
 // Only define these prefs if Stylo support is actually built in.
 #ifdef MOZ_STYLO
-// XXX: We should flip this pref to true once the blocked_domains is non-empty.
-pref("layout.css.stylo-blocklist.enabled", false);
-pref("layout.css.stylo-blocklist.blocked_domains", "");
 #ifdef MOZ_STYLO_ENABLE
 pref("layout.css.servo.enabled", true);
 #else
@@ -5800,7 +5822,11 @@ pref("layout.css.servo.enabled", false);
 // If Stylo is not enabled, this pref doesn't take any effect.
 // Note that this pref is only read once when requested. Changing it
 // at runtime may have no effect.
+#ifdef MOZ_OLD_STYLE
 pref("layout.css.servo.chrome.enabled", false);
+#else
+pref("layout.css.servo.chrome.enabled", true);
+#endif
 #endif
 
 // TODO: Bug 1324406: Treat 'data:' documents as unique, opaque origins
@@ -5914,5 +5940,9 @@ pref("layers.omtp.enabled", true);
 #else
 pref("layers.omtp.enabled", false);
 #endif
-pref("layers.omtp.release-capture-on-main-thread", false);
+#if defined(XP_MACOSX)
+pref("layers.omtp.paint-workers", -1);
+#else
 pref("layers.omtp.paint-workers", 1);
+#endif
+pref("layers.omtp.release-capture-on-main-thread", false);

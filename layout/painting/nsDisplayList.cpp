@@ -76,7 +76,9 @@
 #include "LayersLogging.h"
 #include "FrameLayerBuilder.h"
 #include "mozilla/EventStateManager.h"
+#ifdef MOZ_OLD_STYLE
 #include "mozilla/GeckoRestyleManager.h"
+#endif
 #include "nsCaret.h"
 #include "nsISelection.h"
 #include "nsDOMTokenList.h"
@@ -174,9 +176,12 @@ static void AddTransformFunctions(const nsCSSValueList* aList,
     return;
   }
 
-  GeckoStyleContext* contextIfGecko = aContext
-                                      ? aContext->GetAsGecko()
-                                      : nullptr;
+  GeckoStyleContext* contextIfGecko =
+#ifdef MOZ_OLD_STYLE
+    aContext ? aContext->GetAsGecko() : nullptr;
+#else
+    nullptr;
+#endif
 
   for (const nsCSSValueList* curr = aList; curr; curr = curr->mNext) {
     const nsCSSValue& currElem = curr->mValue;
@@ -480,9 +485,13 @@ SetAnimatable(nsCSSPropertyID aProperty,
         Servo_AnimationValue_GetTransform(aAnimationValue.mServo, &list);
         AddTransformFunctions(list, aFrame, aRefBox, aAnimatable);
       } else {
+#ifdef MOZ_OLD_STYLE
         nsCSSValueSharedList* list =
           aAnimationValue.mGecko.GetCSSValueSharedListValue();
         AddTransformFunctions(list, aFrame, aRefBox, aAnimatable);
+#else
+        MOZ_CRASH("old style system disabled");
+#endif
       }
       break;
     }
@@ -610,7 +619,8 @@ AddAnimationForProperty(nsIFrame* aFrame, const AnimationProperty& aProperty,
 static void
 AddAnimationsForProperty(nsIFrame* aFrame, nsDisplayListBuilder* aBuilder,
                          nsDisplayItem* aItem, nsCSSPropertyID aProperty,
-                         AnimationInfo& aAnimationInfo, bool aPending)
+                         AnimationInfo& aAnimationInfo, bool aPending,
+                         bool aIsForWebRender)
 {
   if (aPending) {
     aAnimationInfo.ClearAnimationsForNextTransaction();
@@ -667,7 +677,11 @@ AddAnimationsForProperty(nsIFrame* aFrame, nsDisplayListBuilder* aBuilder,
     float scaleX = 1.0f;
     float scaleY = 1.0f;
     bool hasPerspectiveParent = false;
-    if (aItem) {
+    if (aIsForWebRender) {
+      // leave origin empty, because we are sending it separately on the stacking
+      // context that we are pushing to WR, and WR will automatically include
+      // it when picking up the animated transform values
+    } else if (aItem) {
       // This branch is for display items to leverage the cache of
       // nsDisplayListBuilder.
       origin = aItem->ToReferenceFrame();
@@ -845,7 +859,7 @@ nsDisplayListBuilder::AddAnimationsAndTransitionsToLayer(Layer* aLayer,
   bool pending = !aBuilder;
   AnimationInfo& animationInfo = aLayer->GetAnimationInfo();
   AddAnimationsForProperty(aFrame, aBuilder, aItem, aProperty,
-                           animationInfo, pending);
+                           animationInfo, pending, false);
   animationInfo.TransferMutatedFlagToLayer(aLayer);
 }
 
@@ -1569,8 +1583,12 @@ nsDisplayListBuilder::AllocateDisplayItemClipChain(const DisplayItemClip& aClip,
                                                    const ActiveScrolledRoot* aASR,
                                                    const DisplayItemClipChain* aParent)
 {
+  MOZ_ASSERT(!(aParent && aParent->mOnStack));
   void* p = Allocate(sizeof(DisplayItemClipChain), DisplayItemType::TYPE_ZERO);
   DisplayItemClipChain* c = new (KnownNotNull, p) DisplayItemClipChain(aClip, aASR, aParent);
+#ifdef DEBUG
+  c->mOnStack = false;
+#endif
   auto result = mClipDeduplicator.insert(c);
   if (!result.second) {
     // An equivalent clip chain item was already created, so let's return that
@@ -1733,7 +1751,7 @@ nsDisplayListBuilder::IsAnimatedGeometryRoot(nsIFrame* aFrame,
     nsIScrollableFrame* sf = do_QueryFrame(parent);
     if (sf->GetScrolledFrame() == aFrame) {
       if (sf->IsScrollingActive(this)) {
-        aIsAsync = aIsAsync || sf->MayBeAsynchronouslyScrolled();
+        aIsAsync = aIsAsync || sf->IsMaybeAsynchronouslyScrolled();
         result = AGR_YES;
       } else {
         result = AGR_MAYBE;
@@ -1940,14 +1958,11 @@ nsDisplayListBuilder::AdjustWindowDraggingRegion(nsIFrame* aFrame)
     return;
   }
 
+  mozilla::gfx::IntRect rect(transformedDevPixelBorderBoxInt.ToUnknownRect());
   if (styleUI->mWindowDragging == StyleWindowDragging::Drag) {
-    mWindowDraggingFrames.emplace_back(aFrame);
-    mWindowDraggingRects.AppendElement(
-      nsRegion::RectToBox(transformedDevPixelBorderBoxInt.ToUnknownRect()));
+    mRetainedWindowDraggingRegion.Add(aFrame, rect);
   } else {
-    mWindowNoDraggingFrames.emplace_back(aFrame);
-    mWindowNoDraggingRects.AppendElement(
-      nsRegion::RectToBox(transformedDevPixelBorderBoxInt.ToUnknownRect()));
+    mRetainedWindowNoDraggingRegion.Add(aFrame, rect);
   }
 }
 
@@ -1960,56 +1975,65 @@ nsDisplayListBuilder::GetWindowDraggingRegion() const
     return result;
   }
 
-  LayoutDeviceIntRegion dragRegion((mozilla::gfx::ArrayView<pixman_box32_t>(mWindowDraggingRects)));
-  LayoutDeviceIntRegion noDragRegion((mozilla::gfx::ArrayView<pixman_box32_t>(mWindowNoDraggingRects)));
+  LayoutDeviceIntRegion dragRegion =
+    mRetainedWindowDraggingRegion.ToLayoutDeviceIntRegion();
+
+  LayoutDeviceIntRegion noDragRegion =
+    mRetainedWindowNoDraggingRegion.ToLayoutDeviceIntRegion();
 
   result.Sub(dragRegion, noDragRegion);
   return result;
 }
 
-void
-nsDisplayListBuilder::RemoveModifiedWindowDraggingRegion()
+/**
+ * Removes modified frames and rects from |aRegion|.
+ */
+static void
+RemoveModifiedFramesAndRects(nsDisplayListBuilder::WeakFrameRegion& aRegion)
 {
-  uint32_t i = 0;
-  uint32_t length = mWindowDraggingFrames.size();
-  while (i < length) {
-    if (!mWindowDraggingFrames[i].IsAlive() ||
-        mWindowDraggingFrames[i]->IsFrameModified()) {
-      // Swap the modified frame to the end of the vector so that
-      // we can remove them all at the end in one go.
-      mWindowDraggingFrames[i] = mWindowDraggingFrames[length - 1];
-      mWindowDraggingRects[i] = mWindowDraggingRects[length - 1];
-      length--;
-    } else {
-      i++;
-    }
-  }
-  mWindowDraggingFrames.resize(length);
-  mWindowDraggingRects.SetLength(length);
+  std::vector<WeakFrame>& frames = aRegion.mFrames;
+  nsTArray<pixman_box32_t>& rects = aRegion.mRects;
 
-  i = 0;
-  length = mWindowNoDraggingFrames.size();
-  while (i < length) {
-    if (!mWindowNoDraggingFrames[i].IsAlive() ||
-        mWindowNoDraggingFrames[i]->IsFrameModified()) {
-      mWindowNoDraggingFrames[i] = mWindowNoDraggingFrames[length - 1];
-      mWindowNoDraggingRects[i] = mWindowNoDraggingRects[length - 1];
+  MOZ_ASSERT(frames.size() == rects.Length());
+
+  uint32_t i = 0;
+  uint32_t length = frames.size();
+
+  while(i < length) {
+    WeakFrame& frame = frames[i];
+
+    if (!frame.IsAlive() || frame->IsFrameModified()) {
+      // To avoid O(n) shifts in the array, move the last element of the array
+      // to the current position and decrease the array length. Moving WeakFrame
+      // inside of the array causes a new WeakFrame to be created and registered
+      // with PresShell. We could avoid this by, for example, using a wrapper
+      // class for WeakFrame, or by storing raw  WeakFrame pointers.
+      frames[i] = frames[length - 1];
+      rects[i] = rects[length - 1];
       length--;
     } else {
       i++;
     }
   }
-  mWindowNoDraggingFrames.resize(length);
-  mWindowNoDraggingRects.SetLength(length);
+
+  frames.resize(length);
+  rects.TruncateLength(length);
 }
 
 void
-nsDisplayListBuilder::ClearWindowDraggingRegion()
+nsDisplayListBuilder::RemoveModifiedWindowRegions()
 {
-  mWindowDraggingFrames.clear();
-  mWindowDraggingRects.Clear();
-  mWindowNoDraggingFrames.clear();
-  mWindowNoDraggingRects.Clear();
+  RemoveModifiedFramesAndRects(mRetainedWindowDraggingRegion);
+  RemoveModifiedFramesAndRects(mRetainedWindowNoDraggingRegion);
+  RemoveModifiedFramesAndRects(mWindowExcludeGlassRegion);
+}
+
+void
+nsDisplayListBuilder::ClearRetainedWindowRegions()
+{
+  mRetainedWindowDraggingRegion.Clear();
+  mRetainedWindowNoDraggingRegion.Clear();
+  mWindowExcludeGlassRegion.Clear();
 }
 
 const uint32_t gWillChangeAreaMultiplier = 3;
@@ -2442,6 +2466,18 @@ already_AddRefed<LayerManager> nsDisplayList::PaintRoot(nsDisplayListBuilder* aB
           return nullptr;
         }
       }
+    }
+
+    // Windowed plugins are not supported with WebRender enabled.
+    // But PluginGeometry needs to be updated to show plugin.
+    // Windowed plugins are going to be removed by Bug 1296400.
+    nsRootPresContext* rootPresContext = presContext->GetRootPresContext();
+    if (rootPresContext && XRE_IsContentProcess()) {
+      if (aBuilder->WillComputePluginGeometry()) {
+        rootPresContext->ComputePluginGeometryUpdates(aBuilder->RootReferenceFrame(), aBuilder, this);
+      }
+      // This must be called even if PluginGeometryUpdates were not computed.
+      rootPresContext->CollectPluginGeometryUpdates(layerManager);
     }
 
     WebRenderLayerManager* wrManager = static_cast<WebRenderLayerManager*>(layerManager.get());
@@ -2928,6 +2964,7 @@ nsDisplayItem::nsDisplayItem(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
   , mForceNotVisible(aBuilder->IsBuildingInvisibleItems())
   , mDisableSubpixelAA(false)
   , mReusedItem(false)
+  , mBackfaceHidden(mFrame->In3DContextAndBackfaceIsHidden())
 #ifdef MOZ_DUMP_PAINTING
   , mPainted(false)
 #endif
@@ -4472,7 +4509,7 @@ nsDisplayImageContainer::ConfigureLayer(ImageLayer* aLayer,
   if (imageWidth > 0 && imageHeight > 0) {
     // We're actually using the ImageContainer. Let our frame know that it
     // should consider itself to have painted successfully.
-    nsDisplayBackgroundGeometry::UpdateDrawResult(this, ImgDrawResult::SUCCESS);
+    UpdateDrawResult(ImgDrawResult::SUCCESS);
   }
 
   // XXX(seth): Right now we ignore aParameters.Scale() and
@@ -5438,8 +5475,7 @@ nsDisplayBorder::GetLayerState(nsDisplayListBuilder* aBuilder,
     return LAYER_NONE;
   }
 
-  bool hasCompositeColors;
-  if (!br->AllBordersSolid(&hasCompositeColors) || hasCompositeColors) {
+  if (!br->AllBordersSolid()) {
     return LAYER_NONE;
   }
 
@@ -6668,7 +6704,7 @@ nsDisplayOpacity::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuil
   AnimationInfo& animationInfo = animationData->GetAnimationInfo();
   AddAnimationsForProperty(Frame(), aDisplayListBuilder,
                            this, eCSSProperty_opacity,
-                           animationInfo, false);
+                           animationInfo, false, true);
   animationInfo.StartPendingAnimations(aManager->GetAnimationReadyTime());
 
   // Note that animationsId can be 0 (uninitialized in AnimationInfo) if there
@@ -6694,7 +6730,7 @@ nsDisplayOpacity::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuil
   }
 
   nsTArray<mozilla::wr::WrFilterOp> filters;
-  StackingContextHelper sc(aSc, aBuilder, filters, nullptr,
+  StackingContextHelper sc(aSc, aBuilder, filters, LayoutDeviceRect(), nullptr,
                            animationsId ? &prop : nullptr,
                            opacityForSC);
 
@@ -6748,8 +6784,9 @@ nsDisplayBlendMode::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
                                             nsDisplayListBuilder* aDisplayListBuilder)
 {
   nsTArray<mozilla::wr::WrFilterOp> filters;
-  StackingContextHelper sc(aSc, aBuilder, filters, nullptr, 0, nullptr, nullptr,
-                           nullptr, nsCSSRendering::GetGFXBlendMode(mBlendMode));
+  StackingContextHelper sc(aSc, aBuilder, filters, LayoutDeviceRect(), nullptr,
+                           nullptr, nullptr, nullptr, nullptr,
+                           nsCSSRendering::GetGFXBlendMode(mBlendMode));
 
   return nsDisplayWrapList::CreateWebRenderCommands(aBuilder,aResources, sc,
                                                     aManager, aDisplayListBuilder);
@@ -7001,7 +7038,7 @@ nsDisplayOwnLayer::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBui
   prop.effect_type = wr::WrAnimationType::Transform;
 
   StackingContextHelper sc(aSc, aBuilder, nsTArray<wr::WrFilterOp>(),
-                           nullptr, &prop);
+                           LayoutDeviceRect(), nullptr, &prop);
 
   nsDisplayWrapList::CreateWebRenderCommands(aBuilder, aResources, sc,
                                              aManager, aDisplayListBuilder);
@@ -7505,7 +7542,7 @@ nsDisplayStickyPosition::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder
     // will never be asynchronously scrolled. Instead we will always position
     // the sticky items correctly on the gecko side and WR will never need to
     // adjust their position itself.
-    if (!stickyScrollContainer->ScrollFrame()->MayBeAsynchronouslyScrolled()) {
+    if (!stickyScrollContainer->ScrollFrame()->IsMaybeAsynchronouslyScrolled()) {
       stickyScrollContainer = nullptr;
     }
   }
@@ -8100,7 +8137,7 @@ nsDisplayTransform::FrameTransformProperties::FrameTransformProperties(const nsI
                                                                        float aAppUnitsPerPixel,
                                                                        const nsRect* aBoundsOverride)
   : mFrame(aFrame)
-  , mTransformList(aFrame->StyleDisplay()->mSpecifiedTransform)
+  , mTransformList(aFrame->StyleDisplay()->GetCombinedTransform())
   , mToTransformOrigin(GetDeltaToTransformOrigin(aFrame, aAppUnitsPerPixel, aBoundsOverride))
 {
 }
@@ -8418,9 +8455,18 @@ nsDisplayTransform::GetTransform() const
 }
 
 Matrix4x4
-nsDisplayTransform::GetTransformForRendering()
+nsDisplayTransform::GetTransformForRendering(LayoutDevicePoint* aOutOrigin)
 {
   if (!mFrame->HasPerspective() || mTransformGetter || mIsTransformSeparator) {
+    if (!mTransformGetter && !mIsTransformSeparator && aOutOrigin) {
+      // If aOutOrigin is provided, put the offset to origin into it, because
+      // we need to keep it separate for webrender. The combination of
+      // *aOutOrigin and the returned matrix here should always be equivalent
+      // to what GetTransform() would have returned.
+      float scale = mFrame->PresContext()->AppUnitsPerDevPixel();
+      *aOutOrigin = LayoutDevicePoint::FromAppUnits(ToReferenceFrame(), scale);
+      return GetResultingTransformMatrix(mFrame, nsPoint(0, 0), scale, INCLUDE_PERSPECTIVE);
+    }
     return GetTransform();
   }
   MOZ_ASSERT(!mTransformGetter);
@@ -8476,7 +8522,14 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
                                             WebRenderLayerManager* aManager,
                                             nsDisplayListBuilder* aDisplayListBuilder)
 {
-  Matrix4x4 newTransformMatrix = GetTransformForRendering();
+  // We want to make sure we don't pollute the transform property in the WR
+  // stacking context by including the position of this frame (relative to the
+  // parent reference frame). We need to keep those separate; the position of
+  // this frame goes into the stacking context bounds while the transform goes
+  // into the transform.
+  LayoutDevicePoint position;
+  Matrix4x4 newTransformMatrix = GetTransformForRendering(&position);
+
   gfx::Matrix4x4* transformForSC = &newTransformMatrix;
   if (newTransformMatrix.IsIdentity()) {
     // If the transform is an identity transform, strip it out so that WR
@@ -8490,7 +8543,7 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
   AnimationInfo& animationInfo = animationData->GetAnimationInfo();
   AddAnimationsForProperty(Frame(), aDisplayListBuilder,
                            this, eCSSProperty_transform,
-                           animationInfo, false);
+                           animationInfo, false, true);
   animationInfo.StartPendingAnimations(aManager->GetAnimationReadyTime());
 
   // Note that animationsId can be 0 (uninitialized in AnimationInfo) if there
@@ -8524,6 +8577,7 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
   StackingContextHelper sc(aSc,
                            aBuilder,
                            filters,
+                           LayoutDeviceRect(position, LayoutDeviceSize()),
                            &newTransformMatrix,
                            animationsId ? &prop : nullptr,
                            nullptr,
@@ -9148,8 +9202,9 @@ nsDisplayPerspective::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& a
   StackingContextHelper sc(aSc,
                            aBuilder,
                            filters,
+                           LayoutDeviceRect(),
                            nullptr,
-                           0,
+                           nullptr,
                            nullptr,
                            &transformForSC,
                            &perspectiveMatrix,
@@ -9922,7 +9977,8 @@ nsDisplayFilter::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuild
   }
 
   float opacity = mFrame->StyleEffects()->mOpacity;
-  StackingContextHelper sc(aSc, aBuilder, wrFilters, nullptr, 0, opacity != 1.0f && mHandleOpacity ? &opacity : nullptr);
+  StackingContextHelper sc(aSc, aBuilder, wrFilters, LayoutDeviceRect(), nullptr,
+                           nullptr, opacity != 1.0f && mHandleOpacity ? &opacity : nullptr);
 
   nsDisplaySVGEffects::CreateWebRenderCommands(aBuilder, aResources, sc, aManager, aDisplayListBuilder);
   return true;

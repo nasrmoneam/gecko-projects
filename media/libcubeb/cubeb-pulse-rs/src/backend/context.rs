@@ -37,7 +37,7 @@ fn pa_channel_to_cubeb_channel(channel: pulse::ChannelPosition) -> cubeb::Channe
 fn channel_map_to_layout(cm: &pulse::ChannelMap) -> cubeb::ChannelLayout {
     use pulse::ChannelPosition;
     let mut cubeb_map: cubeb::ChannelMap = Default::default();
-    cubeb_map.channels = cm.channels as u32;
+    cubeb_map.channels = u32::from(cm.channels);
     for i in 0usize..cm.channels as usize {
         cubeb_map.map[i] = pa_channel_to_cubeb_channel(ChannelPosition::try_from(cm.map[i])
                                                            .unwrap_or(ChannelPosition::Invalid));
@@ -121,7 +121,7 @@ impl Context {
     pub fn new(name: *const c_char) -> Result<Box<Self>> {
         fn server_info_cb(context: &pulse::Context, info: &pulse::ServerInfo, u: *mut c_void) {
             fn sink_info_cb(_: &pulse::Context, i: *const pulse::SinkInfo, eol: i32, u: *mut c_void) {
-                let mut ctx = unsafe { &mut *(u as *mut Context) };
+                let ctx = unsafe { &mut *(u as *mut Context) };
                 if eol == 0 {
                     let info = unsafe { &*i };
                     let flags = pulse::SinkFlags::from_bits_truncate(info.flags);
@@ -176,6 +176,7 @@ impl Context {
         }
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
     pub fn new_stream(&mut self,
                       stream_name: &CStr,
                       input_device: cubeb::DeviceId,
@@ -205,7 +206,7 @@ impl Context {
 
     pub fn max_channel_count(&self) -> Result<u32> {
         match self.default_sink_info {
-            Some(ref info) => Ok(info.channel_map.channels as u32),
+            Some(ref info) => Ok(u32::from(info.channel_map.channels)),
             None => Err(cubeb::ERROR),
         }
     }
@@ -231,7 +232,7 @@ impl Context {
 
     pub fn enumerate_devices(&self, devtype: cubeb::DeviceType) -> Result<cubeb::DeviceCollection> {
         fn add_output_device(_: &pulse::Context, i: *const pulse::SinkInfo, eol: i32, user_data: *mut c_void) {
-            let mut list_data = unsafe { &mut *(user_data as *mut PulseDevListData) };
+            let list_data = unsafe { &mut *(user_data as *mut PulseDevListData) };
             let ctx = &(*list_data.context);
 
             if eol != 0 {
@@ -258,7 +259,7 @@ impl Context {
             let info_description = unsafe { CStr::from_ptr(info.description) }.to_owned();
 
             let preferred = if *info_name == *list_data.default_sink_name {
-                cubeb::DEVICE_PREF_ALL
+                cubeb::DevicePref::ALL
             } else {
                 cubeb::DevicePref::empty()
             };
@@ -271,12 +272,12 @@ impl Context {
                 friendly_name: friendly_name,
                 group_id: group_id,
                 vendor_name: vendor_name,
-                devtype: cubeb::DEVICE_TYPE_OUTPUT,
+                devtype: cubeb::DeviceType::OUTPUT,
                 state: ctx.state_from_port(info.active_port),
                 preferred: preferred,
                 format: cubeb::DeviceFmt::all(),
                 default_format: pulse_format_to_cubeb_format(info.sample_spec.format),
-                max_channels: info.channel_map.channels as u32,
+                max_channels: u32::from(info.channel_map.channels),
                 min_rate: 1,
                 max_rate: PA_RATE_MAX,
                 default_rate: info.sample_spec.rate,
@@ -287,7 +288,7 @@ impl Context {
         }
 
         fn add_input_device(_: &pulse::Context, i: *const pulse::SourceInfo, eol: i32, user_data: *mut c_void) {
-            let mut list_data = unsafe { &mut *(user_data as *mut PulseDevListData) };
+            let list_data = unsafe { &mut *(user_data as *mut PulseDevListData) };
             let ctx = &(*list_data.context);
 
             if eol != 0 {
@@ -314,7 +315,7 @@ impl Context {
             let info_description = unsafe { CStr::from_ptr(info.description) }.to_owned();
 
             let preferred = if *info_name == *list_data.default_source_name {
-                cubeb::DEVICE_PREF_ALL
+                cubeb::DevicePref::ALL
             } else {
                 cubeb::DevicePref::empty()
             };
@@ -327,12 +328,12 @@ impl Context {
                 friendly_name: friendly_name,
                 group_id: group_id,
                 vendor_name: vendor_name,
-                devtype: cubeb::DEVICE_TYPE_INPUT,
+                devtype: cubeb::DeviceType::INPUT,
                 state: ctx.state_from_port(info.active_port),
                 preferred: preferred,
                 format: cubeb::DeviceFmt::all(),
                 default_format: pulse_format_to_cubeb_format(info.sample_spec.format),
-                max_channels: info.channel_map.channels as u32,
+                max_channels: u32::from(info.channel_map.channels),
                 min_rate: 1,
                 max_rate: PA_RATE_MAX,
                 default_rate: info.sample_spec.rate,
@@ -341,7 +342,6 @@ impl Context {
             };
 
             list_data.devinfo.push(devinfo);
-
         }
 
         fn default_device_names(_: &pulse::Context, info: &pulse::ServerInfo, user_data: *mut c_void) {
@@ -366,13 +366,13 @@ impl Context {
                 self.operation_wait(None, &o);
             }
 
-            if devtype.contains(cubeb::DEVICE_TYPE_OUTPUT) {
+            if devtype.contains(cubeb::DeviceType::OUTPUT) {
                 if let Ok(o) = context.get_sink_info_list(add_output_device, &mut user_data as *mut _ as *mut _) {
                     self.operation_wait(None, &o);
                 }
             }
 
-            if devtype.contains(cubeb::DEVICE_TYPE_INPUT) {
+            if devtype.contains(cubeb::DeviceType::INPUT) {
                 if let Ok(o) = context.get_source_info_list(add_input_device, &mut user_data as *mut _ as *mut _) {
                     self.operation_wait(None, &o);
                 }
@@ -403,7 +403,7 @@ impl Context {
             let mut devices = Vec::from_raw_parts(coll.device as *mut cubeb::DeviceInfo,
                                                   coll.count,
                                                   coll.count);
-            for dev in devices.iter_mut() {
+            for dev in &mut devices {
                 if !dev.group_id.is_null() {
                     let _ = CString::from_raw(dev.group_id as *mut _);
                 }
@@ -423,7 +423,7 @@ impl Context {
                                               user_ptr: *mut c_void)
                                               -> i32 {
         fn update_collection(_: &pulse::Context, event: pulse::SubscriptionEvent, index: u32, user_data: *mut c_void) {
-            let mut ctx = unsafe { &mut *(user_data as *mut Context) };
+            let ctx = unsafe { &mut *(user_data as *mut Context) };
 
             let (f, t) = (event.event_facility(), event.event_type());
             match f {
@@ -477,17 +477,18 @@ impl Context {
                 context.clear_subscribe_callback();
             } else {
                 context.set_subscribe_callback(update_collection, user_data);
-                if devtype.contains(cubeb::DEVICE_TYPE_INPUT) {
-                    mask |= pulse::SUBSCRIPTION_MASK_SOURCE
+                if devtype.contains(cubeb::DeviceType::INPUT) {
+                    mask |= pulse::SubscriptionMask::SOURCE
                 };
-                if devtype.contains(cubeb::DEVICE_TYPE_OUTPUT) {
-                    mask = pulse::SUBSCRIPTION_MASK_SINK
+                if devtype.contains(cubeb::DeviceType::OUTPUT) {
+                    mask = pulse::SubscriptionMask::SINK
                 };
             }
 
             if let Ok(o) = context.subscribe(mask, success, self as *const _ as *mut _) {
                 self.operation_wait(None, &o);
             } else {
+                self.mainloop.unlock();
                 log!("Context subscribe failed");
                 return cubeb::ERROR;
             }
@@ -500,7 +501,7 @@ impl Context {
 
     pub fn context_init(&mut self) -> i32 {
         fn error_state(c: &pulse::Context, u: *mut c_void) {
-            let mut ctx = unsafe { &mut *(u as *mut Context) };
+            let ctx = unsafe { &mut *(u as *mut Context) };
             if !c.get_state().is_good() {
                 ctx.error = true;
             }
@@ -557,18 +558,15 @@ impl Context {
         }
 
         let context_ptr: *mut c_void = self as *mut _ as *mut _;
-        match self.context.take() {
-            Some(ctx) => {
-                self.mainloop.lock();
-                if let Ok(o) = ctx.drain(drain_complete, context_ptr) {
-                    self.operation_wait(None, &o);
-                }
-                ctx.clear_state_callback();
-                ctx.disconnect();
-                ctx.unref();
-                self.mainloop.unlock();
-            },
-            _ => {},
+        if let Some(ctx) = self.context.take() {
+            self.mainloop.lock();
+            if let Ok(o) = ctx.drain(drain_complete, context_ptr) {
+                self.operation_wait(None, &o);
+            }
+            ctx.clear_state_callback();
+            ctx.disconnect();
+            ctx.unref();
+            self.mainloop.unlock();
         }
     }
 
@@ -655,11 +653,11 @@ impl<'a> Drop for PulseDevListData<'a> {
 
 fn pulse_format_to_cubeb_format(format: pa_sample_format_t) -> cubeb::DeviceFmt {
     match format {
-        PA_SAMPLE_S16LE => cubeb::DEVICE_FMT_S16LE,
-        PA_SAMPLE_S16BE => cubeb::DEVICE_FMT_S16BE,
-        PA_SAMPLE_FLOAT32LE => cubeb::DEVICE_FMT_F32LE,
-        PA_SAMPLE_FLOAT32BE => cubeb::DEVICE_FMT_F32BE,
+        PA_SAMPLE_S16LE => cubeb::DeviceFmt::S16LE,
+        PA_SAMPLE_S16BE => cubeb::DeviceFmt::S16BE,
+        PA_SAMPLE_FLOAT32LE => cubeb::DeviceFmt::F32LE,
+        PA_SAMPLE_FLOAT32BE => cubeb::DeviceFmt::F32BE,
         // Unsupported format, return F32NE
-        _ => cubeb::CUBEB_FMT_F32NE,
+        _ => cubeb::DeviceFmt::F32NE,
     }
 }

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
-use api::{ExternalImageType, FilterOp, ImageRendering, LayerRect};
+use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
@@ -11,21 +11,21 @@ use clip::{ClipSource, ClipStore};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
-use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
+use gpu_cache::{GpuCache, GpuCacheAddress};
 use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, PictureType};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
+use prim_store::{ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PrimitiveRun};
 use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
-use resource_cache::{GlyphFetchResult, ResourceCache};
+use resource_cache::{CacheItem, GlyphFetchResult, ResourceCache};
 use std::{usize, f32, i32};
 use tiling::{RenderTargetContext, RenderTargetKind};
 use util::{MatrixHelpers, TransformedRectKind};
@@ -35,6 +35,8 @@ use util::{MatrixHelpers, TransformedRectKind};
 const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(i32::MAX as u32);
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TransformBatchKind {
     TextRun(GlyphFormat),
     Image(ImageBufferKind),
@@ -47,6 +49,8 @@ pub enum TransformBatchKind {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushImageSourceKind {
     Alpha,
     Color,
@@ -63,13 +67,17 @@ impl BrushImageSourceKind {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
-    Image(BrushImageSourceKind),
+    Picture(BrushImageSourceKind),
     Solid,
     Line,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BatchKind {
     Composite {
         task_id: RenderTaskId,
@@ -86,6 +94,8 @@ pub enum BatchKind {
 /// Optional textures that can be used as a source in the shaders.
 /// Textures that are not used by the batch are equal to TextureId::invalid().
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BatchTextures {
     pub colors: [SourceTexture; 3],
 }
@@ -115,6 +125,8 @@ impl BatchTextures {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaPrimitiveBatch {
     pub key: BatchKey,
     pub instances: Vec<PrimitiveInstance>,
@@ -132,6 +144,8 @@ impl AlphaPrimitiveBatch {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct OpaquePrimitiveBatch {
     pub key: BatchKey,
     pub instances: Vec<PrimitiveInstance>,
@@ -147,6 +161,8 @@ impl OpaquePrimitiveBatch {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BatchKey {
     pub kind: BatchKind,
     pub blend_mode: BlendMode,
@@ -175,6 +191,8 @@ fn textures_compatible(t1: SourceTexture, t2: SourceTexture) -> bool {
     t1 == SourceTexture::Invalid || t2 == SourceTexture::Invalid || t1 == t2
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaBatchList {
     pub batches: Vec<AlphaPrimitiveBatch>,
 }
@@ -252,6 +270,8 @@ impl AlphaBatchList {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct OpaqueBatchList {
     pub pixel_area_threshold_for_new_batch: i32,
     pub batches: Vec<OpaquePrimitiveBatch>,
@@ -317,6 +337,8 @@ impl OpaqueBatchList {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BatchList {
     pub alpha_batch_list: AlphaBatchList,
     pub opaque_batch_list: OpaqueBatchList,
@@ -363,6 +385,8 @@ impl BatchList {
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
     pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
@@ -535,6 +559,24 @@ impl AlphaBatcher {
         }
     }
 
+    fn get_buffer_kind(texture: SourceTexture) -> ImageBufferKind {
+        match texture {
+            SourceTexture::External(ext_image) => {
+                match ext_image.image_type {
+                    ExternalImageType::TextureHandle(target) => {
+                        target.into()
+                    }
+                    ExternalImageType::Buffer => {
+                        // The ExternalImageType::Buffer should be handled by resource_cache.
+                        // It should go through the non-external case.
+                        panic!("Unexpected non-texture handle type");
+                    }
+                }
+            }
+            _ => ImageBufferKind::Texture2DArray,
+        }
+    }
+
     // Adds a primitive to a batch.
     // It can recursively call itself in some situations, for
     // example if it encounters a picture where the items
@@ -586,11 +628,12 @@ impl AlphaBatcher {
         match prim_metadata.prim_kind {
             PrimitiveKind::Brush => {
                 let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
+                let batch_key = brush.get_batch_key(blend_mode);
 
                 self.add_brush_to_batch(
                     brush,
                     prim_metadata,
-                    blend_mode,
+                    batch_key,
                     clip_chain_rect_index,
                     clip_task_address,
                     item_bounding_rect,
@@ -600,6 +643,8 @@ impl AlphaBatcher {
                     transform_kind,
                     z,
                     render_tasks,
+                    0,
+                    0,
                 );
             }
             PrimitiveKind::Border => {
@@ -662,62 +707,42 @@ impl AlphaBatcher {
             PrimitiveKind::Image => {
                 let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-                let (color_texture_id, uv_address) = resolve_image(
-                    image_cpu.image_key,
-                    image_cpu.image_rendering,
-                    image_cpu.tile_offset,
-                    ctx.resource_cache,
-                    gpu_cache,
-                    deferred_resolves,
-                );
+                let cache_item = match image_cpu.source {
+                    ImageSource::Default => {
+                        resolve_image(
+                            image_cpu.key.image_key,
+                            image_cpu.key.image_rendering,
+                            image_cpu.key.tile_offset,
+                            ctx.resource_cache,
+                            gpu_cache,
+                            deferred_resolves,
+                        )
+                    }
+                    ImageSource::Cache { ref item, .. } => {
+                        item.clone()
+                    }
+                };
 
-                if color_texture_id == SourceTexture::Invalid {
-                    warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
+                if cache_item.texture_id == SourceTexture::Invalid {
+                    warn!("Warnings: skip a PrimitiveKind::Image");
+                    debug!("at {:?}.", item_bounding_rect);
                     return;
                 }
 
-                let batch_kind = match color_texture_id {
-                    SourceTexture::External(ext_image) => {
-                        match ext_image.image_type {
-                            ExternalImageType::Texture2DHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::Texture2D)
-                            }
-                            ExternalImageType::Texture2DArrayHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::Texture2DArray)
-                            }
-                            ExternalImageType::TextureRectHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::TextureRect)
-                            }
-                            ExternalImageType::TextureExternalHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::TextureExternal)
-                            }
-                            ExternalImageType::ExternalBuffer => {
-                                // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
-                                // It should go through the non-external case.
-                                panic!(
-                                    "Non-texture handle type should be handled in other way"
-                                );
-                            }
-                        }
-                    }
-                    _ => TransformBatchKind::Image(ImageBufferKind::Texture2DArray),
-                };
-
-                let textures = BatchTextures {
-                    colors: [
-                        color_texture_id,
-                        SourceTexture::Invalid,
-                        SourceTexture::Invalid,
-                    ],
-                };
-
+                let batch_kind = TransformBatchKind::Image(Self::get_buffer_kind(cache_item.texture_id));
                 let key = BatchKey::new(
                     BatchKind::Transformable(transform_kind, batch_kind),
                     blend_mode,
-                    textures,
+                    BatchTextures {
+                        colors: [
+                            cache_item.texture_id,
+                            SourceTexture::Invalid,
+                            SourceTexture::Invalid,
+                        ],
+                    },
                 );
                 let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
-                batch.push(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
+                batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
             }
             PrimitiveKind::TextRun => {
                 let text_cpu =
@@ -823,25 +848,31 @@ impl AlphaBatcher {
                             PictureKind::BoxShadow { image_kind, .. } => {
                                 let textures = BatchTextures::color(cache_item.texture_id);
                                 let kind = BatchKind::Brush(
-                                    BrushBatchKind::Image(
+                                    BrushBatchKind::Picture(
                                         BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                                 );
-                                let key = BatchKey::new(kind, blend_mode, textures);
-                                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                                let alpha_batch_key = BatchKey::new(
+                                    kind,
+                                    blend_mode,
+                                    textures,
+                                );
 
-                                let instance = BrushInstance {
-                                    picture_address: task_address,
-                                    prim_address: prim_cache_address,
+                                self.add_brush_to_batch(
+                                    &picture.brush,
+                                    prim_metadata,
+                                    alpha_batch_key,
                                     clip_chain_rect_index,
-                                    scroll_id,
                                     clip_task_address,
+                                    item_bounding_rect,
+                                    prim_cache_address,
+                                    scroll_id,
+                                    task_address,
+                                    transform_kind,
                                     z,
-                                    segment_index: 0,
-                                    edge_flags: EdgeAaSegmentMask::empty(),
-                                    user_data0: cache_item.uv_rect_handle.as_int(gpu_cache),
-                                    user_data1: image_kind as i32,
-                                };
-                                batch.push(PrimitiveInstance::from(instance));
+                                    render_tasks,
+                                    cache_item.uv_rect_handle.as_int(gpu_cache),
+                                    image_kind as i32,
+                                );
                             }
                         }
                     }
@@ -852,7 +883,7 @@ impl AlphaBatcher {
                         match picture.kind {
                             PictureKind::TextShadow { .. } => {
                                 let kind = BatchKind::Brush(
-                                    BrushBatchKind::Image(
+                                    BrushBatchKind::Picture(
                                         BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                                 );
                                 let key = BatchKey::new(kind, blend_mode, textures);
@@ -936,7 +967,7 @@ impl AlphaBatcher {
                                             }
                                             FilterOp::DropShadow(offset, _, _) => {
                                                 let kind = BatchKind::Brush(
-                                                    BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
+                                                    BrushBatchKind::Picture(BrushImageSourceKind::ColorAlphaMask),
                                                 );
                                                 let key = BatchKey::new(kind, blend_mode, textures);
 
@@ -1143,7 +1174,7 @@ impl AlphaBatcher {
                 for channel in 0 .. channel_count {
                     let image_key = image_yuv_cpu.yuv_key[channel];
 
-                    let (texture, address) = resolve_image(
+                    let cache_item = resolve_image(
                         image_key,
                         image_yuv_cpu.image_rendering,
                         None,
@@ -1152,48 +1183,22 @@ impl AlphaBatcher {
                         deferred_resolves,
                     );
 
-                    if texture == SourceTexture::Invalid {
-                        warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
+                    if cache_item.texture_id == SourceTexture::Invalid {
+                        warn!("Warnings: skip a PrimitiveKind::YuvImage");
+                        debug!("at {:?}.", item_bounding_rect);
                         return;
                     }
 
-                    textures.colors[channel] = texture;
-                    uv_rect_addresses[channel] = address.as_int(gpu_cache);
+                    textures.colors[channel] = cache_item.texture_id;
+                    uv_rect_addresses[channel] = cache_item.uv_rect_handle.as_int(gpu_cache);
                 }
 
-                let get_buffer_kind = |texture: SourceTexture| {
-                    match texture {
-                        SourceTexture::External(ext_image) => {
-                            match ext_image.image_type {
-                                ExternalImageType::Texture2DHandle => {
-                                    ImageBufferKind::Texture2D
-                                }
-                                ExternalImageType::Texture2DArrayHandle => {
-                                    ImageBufferKind::Texture2DArray
-                                }
-                                ExternalImageType::TextureRectHandle => {
-                                    ImageBufferKind::TextureRect
-                                }
-                                ExternalImageType::TextureExternalHandle => {
-                                    ImageBufferKind::TextureExternal
-                                }
-                                ExternalImageType::ExternalBuffer => {
-                                    // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
-                                    // It should go through the non-external case.
-                                    panic!("Unexpected non-texture handle type");
-                                }
-                            }
-                        }
-                        _ => ImageBufferKind::Texture2DArray,
-                    }
-                };
-
                 // All yuv textures should be the same type.
-                let buffer_kind = get_buffer_kind(textures.colors[0]);
+                let buffer_kind = Self::get_buffer_kind(textures.colors[0]);
                 assert!(
                     textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
                         .iter()
-                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
+                        .all(|&tid| buffer_kind == Self::get_buffer_kind(tid))
                 );
 
                 let kind = BatchKind::Transformable(
@@ -1220,7 +1225,7 @@ impl AlphaBatcher {
         &mut self,
         brush: &BrushPrimitive,
         prim_metadata: &PrimitiveMetadata,
-        blend_mode: BlendMode,
+        batch_key: BatchKey,
         clip_chain_rect_index: ClipChainRectIndex,
         clip_task_address: RenderTaskAddress,
         item_bounding_rect: &DeviceIntRect,
@@ -1230,6 +1235,8 @@ impl AlphaBatcher {
         transform_kind: TransformedRectKind,
         z: i32,
         render_tasks: &RenderTaskTree,
+        user_data0: i32,
+        user_data1: i32,
     ) {
         let base_instance = BrushInstance {
             picture_address: task_address,
@@ -1239,23 +1246,30 @@ impl AlphaBatcher {
             clip_task_address,
             z,
             segment_index: 0,
-            edge_flags: EdgeAaSegmentMask::empty(),
-            user_data0: 0,
-            user_data1: 0,
+            edge_flags: EdgeAaSegmentMask::all(),
+            user_data0,
+            user_data1,
         };
 
         match brush.segment_desc {
             Some(ref segment_desc) => {
-                let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
-                    brush.get_batch_key(
-                        BlendMode::None
-                    ),
+                let alpha_batch_key = BatchKey {
+                    blend_mode: BlendMode::PremultipliedAlpha,
+                    ..batch_key
+                };
+
+                let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
+                    alpha_batch_key,
                     item_bounding_rect
                 );
-                let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
-                    brush.get_batch_key(
-                        BlendMode::PremultipliedAlpha
-                    ),
+
+                let opaque_batch_key = BatchKey {
+                    blend_mode: BlendMode::None,
+                    ..batch_key
+                };
+
+                let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
+                    opaque_batch_key,
                     item_bounding_rect
                 );
 
@@ -1284,7 +1298,7 @@ impl AlphaBatcher {
                 }
             }
             None => {
-                let batch = self.batch_list.get_suitable_batch(brush.get_batch_key(blend_mode), item_bounding_rect);
+                let batch = self.batch_list.get_suitable_batch(batch_key, item_bounding_rect);
                 batch.push(PrimitiveInstance::from(base_instance));
             }
         }
@@ -1300,6 +1314,9 @@ impl BrushPrimitive {
                     blend_mode,
                     BatchTextures::no_texture(),
                 )
+            }
+            BrushKind::Picture => {
+                panic!("bug: get_batch_key is handled at higher level for pictures");
             }
             BrushKind::Solid { .. } => {
                 BatchKey::new(
@@ -1366,14 +1383,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
     }
 }
 
-fn resolve_image(
+pub fn resolve_image(
     image_key: ImageKey,
     image_rendering: ImageRendering,
     tile_offset: Option<TileOffset>,
     resource_cache: &ResourceCache,
     gpu_cache: &mut GpuCache,
     deferred_resolves: &mut Vec<DeferredResolve>,
-) -> (SourceTexture, GpuCacheHandle) {
+) -> CacheItem {
     match resource_cache.get_image_properties(image_key) {
         Some(image_properties) => {
             // Check if an external image that needs to be resolved
@@ -1384,24 +1401,39 @@ fn resolve_image(
                     // the deferred resolves list to be patched by
                     // the render thread...
                     let cache_handle = gpu_cache.push_deferred_per_frame_blocks(BLOCKS_PER_UV_RECT);
+                    let cache_item = CacheItem {
+                        texture_id: SourceTexture::External(external_image),
+                        uv_rect_handle: cache_handle,
+                        uv_rect: DeviceUintRect::new(
+                            DeviceUintPoint::zero(),
+                            DeviceUintSize::new(
+                                image_properties.descriptor.width,
+                                image_properties.descriptor.height,
+                            )
+                        ),
+                        texture_layer: 0,
+                    };
+
                     deferred_resolves.push(DeferredResolve {
                         image_properties,
                         address: gpu_cache.get_address(&cache_handle),
                     });
 
-                    (SourceTexture::External(external_image), cache_handle)
+                    cache_item
                 }
                 None => {
                     if let Ok(cache_item) = resource_cache.get_cached_image(image_key, image_rendering, tile_offset) {
-                        (cache_item.texture_id, cache_item.uv_rect_handle)
+                        cache_item
                     } else {
                         // There is no usable texture entry for the image key. Just return an invalid texture here.
-                        (SourceTexture::Invalid, GpuCacheHandle::new())
+                        CacheItem::invalid()
                     }
                 }
             }
         }
-        None => (SourceTexture::Invalid, GpuCacheHandle::new()),
+        None => {
+            CacheItem::invalid()
+        }
     }
 }
 
@@ -1435,6 +1467,8 @@ fn make_polygon(
 
 /// Batcher managing draw calls into the clip mask (in the RT cache).
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipBatcher {
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<ClipMaskInstance>,
@@ -1491,7 +1525,8 @@ impl ClipBatcher {
                                     ..instance
                                 });
                         } else {
-                            warn!("Warnings: skip a image mask. Key:{:?} Rect::{:?}.\n", mask.image, mask.rect);
+                            warn!("Warnings: skip a image mask");
+                            debug!("Key:{:?} Rect::{:?}", mask.image, mask.rect);
                             continue;
                         }
                     }

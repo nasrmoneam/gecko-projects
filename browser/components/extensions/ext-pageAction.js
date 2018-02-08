@@ -6,15 +6,15 @@
 /* import-globals-from ext-browserAction.js */
 /* import-globals-from ext-browser.js */
 
-XPCOMUtils.defineLazyModuleGetter(this, "PageActions",
-                                  "resource:///modules/PageActions.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "PanelPopup",
-                                  "resource:///modules/ExtensionPopups.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "TelemetryStopwatch",
-                                  "resource://gre/modules/TelemetryStopwatch.jsm");
+ChromeUtils.defineModuleGetter(this, "PageActions",
+                               "resource:///modules/PageActions.jsm");
+ChromeUtils.defineModuleGetter(this, "PanelPopup",
+                               "resource:///modules/ExtensionPopups.jsm");
+ChromeUtils.defineModuleGetter(this, "TelemetryStopwatch",
+                               "resource://gre/modules/TelemetryStopwatch.jsm");
 
 
-Cu.import("resource://gre/modules/ExtensionParent.jsm");
+ChromeUtils.import("resource://gre/modules/ExtensionParent.jsm");
 
 var {
   IconDetails,
@@ -279,9 +279,7 @@ this.pageAction = class extends ExtensionAPI {
 
         setTitle(details) {
           let tab = tabTracker.getTab(details.tabId);
-
-          // Clear the tab-specific title when given a null string.
-          pageAction.setProperty(tab, "title", details.title || null);
+          pageAction.setProperty(tab, "title", details.title);
         },
 
         getTitle(details) {
@@ -295,6 +293,9 @@ this.pageAction = class extends ExtensionAPI {
           let tab = tabTracker.getTab(details.tabId);
 
           let icon = IconDetails.normalize(details, extension, context);
+          if (!Object.keys(icon).length) {
+            icon = null;
+          }
           pageAction.setProperty(tab, "icon", icon);
         },
 

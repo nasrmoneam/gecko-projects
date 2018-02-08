@@ -4,13 +4,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize};
-use api::{DisplayItemRef, DocumentLayer, Epoch, FilterOp};
-use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerVector2D, LayoutSize};
-use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
-use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
-use api::{TileOffset, TransformStyle, WorldPoint};
+use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch};
+use api::{ExternalScrollId, FilterOp, IdType, ImageDisplayItem, ItemRange, LayerPoint};
+use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, LocalClip};
+use api::{PipelineId, ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollNodeState};
+use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset};
+use api::{TransformStyle, WorldPoint};
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
@@ -21,9 +20,11 @@ use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
-use tiling::CompositeOps;
+use tiling::{CompositeOps, Frame};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FrameId(pub u32);
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
@@ -203,6 +204,7 @@ impl<'a> FlattenContext<'a> {
         pipeline_id: PipelineId,
         parent_id: &ClipId,
         new_scroll_frame_id: &ClipId,
+        external_id: Option<ExternalScrollId>,
         frame_rect: &LayerRect,
         content_rect: &LayerRect,
         clip_region: ClipRegion,
@@ -220,6 +222,7 @@ impl<'a> FlattenContext<'a> {
         self.builder.add_scroll_frame(
             *new_scroll_frame_id,
             clip_id,
+            external_id,
             pipeline_id,
             &frame_rect,
             &content_rect.size,
@@ -369,6 +372,7 @@ impl<'a> FlattenContext<'a> {
         self.builder.add_scroll_frame(
             ClipId::root_scroll_node(pipeline_id),
             iframe_reference_frame_id,
+            Some(ExternalScrollId(0, pipeline_id)),
             pipeline_id,
             &iframe_rect,
             &pipeline.content_size,
@@ -418,8 +422,8 @@ impl<'a> FlattenContext<'a> {
                         self.builder.add_image(
                             clip_and_scroll,
                             &prim_info,
-                            &info.stretch_size,
-                            &info.tile_spacing,
+                            info.stretch_size,
+                            info.tile_spacing,
                             None,
                             info.image_key,
                             info.image_rendering,
@@ -456,7 +460,8 @@ impl<'a> FlattenContext<'a> {
                         );
                     }
                     None => {
-                        warn!("Unknown font instance key: {:?}", text_info.font_key);
+                        warn!("Unknown font instance key");
+                        debug!("key={:?}", text_info.font_key);
                     }
                 }
             }
@@ -601,6 +606,7 @@ impl<'a> FlattenContext<'a> {
                     pipeline_id,
                     &clip_and_scroll.scroll_node_id,
                     &info.id,
+                    info.external_id,
                     &frame_rect,
                     &content_rect,
                     clip_region,
@@ -933,8 +939,8 @@ impl<'a> FlattenContext<'a> {
             self.builder.add_image(
                 clip_and_scroll,
                 &prim_info,
-                &stretched_size,
-                &info.tile_spacing,
+                stretched_size,
+                info.tile_spacing,
                 None,
                 info.image_key,
                 info.image_rendering,
@@ -979,12 +985,12 @@ impl FrameContext {
         &self.clip_scroll_tree
     }
 
-    pub fn get_scroll_node_state(&self) -> Vec<ScrollLayerState> {
+    pub fn get_scroll_node_state(&self) -> Vec<ScrollNodeState> {
         self.clip_scroll_tree.get_scroll_node_state()
     }
 
     /// Returns true if the node actually changed position or false otherwise.
-    pub fn scroll_node(&mut self, origin: LayerPoint, id: ClipId, clamp: ScrollClamping) -> bool {
+    pub fn scroll_node(&mut self, origin: LayerPoint, id: IdType, clamp: ScrollClamping) -> bool {
         self.clip_scroll_tree.scroll_node(origin, id, clamp)
     }
 
@@ -1095,6 +1101,13 @@ impl FrameContext {
         self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
 
+    pub fn make_rendered_document(&self, frame: Frame) -> RenderedDocument {
+        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
+        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+    }
+
+    //TODO: this can probably be simplified if `build()` is called directly by RB.
+    // The only things it needs from the frame context is the CST and frame ID.
     pub fn build_rendered_document(
         &mut self,
         frame_builder: &mut FrameBuilder,
@@ -1122,8 +1135,6 @@ impl FrameContext {
             gpu_cache_profile,
             scene_properties,
         );
-
-        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+        self.make_rendered_document(frame)
     }
 }

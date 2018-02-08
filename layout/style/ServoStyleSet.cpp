@@ -31,14 +31,15 @@
 #include "nsMediaFeatures.h"
 #include "nsPrintfCString.h"
 #include "nsSMILAnimationController.h"
+#ifdef MOZ_OLD_STYLE
 #include "nsStyleContext.h"
-#include "nsStyleSet.h"
+#endif
+#include "nsXBLPrototypeBinding.h"
 #include "gfxUserFontSet.h"
+#include "nsBindingManager.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
-
-ServoStyleSet* ServoStyleSet::sInServoTraversal = nullptr;
 
 #ifdef DEBUG
 bool
@@ -49,6 +50,9 @@ ServoStyleSet::IsCurrentThreadInServoTraversal()
 #endif
 
 namespace mozilla {
+ServoStyleSet* sInServoTraversal = nullptr;
+
+
 // On construction, sets sInServoTraversal to the given ServoStyleSet.
 // On destruction, clears sInServoTraversal and calls RunPostTraversalTasks.
 class MOZ_RAII AutoSetInServoTraversal
@@ -57,15 +61,15 @@ public:
   explicit AutoSetInServoTraversal(ServoStyleSet* aSet)
     : mSet(aSet)
   {
-    MOZ_ASSERT(!ServoStyleSet::sInServoTraversal);
+    MOZ_ASSERT(!sInServoTraversal);
     MOZ_ASSERT(aSet);
-    ServoStyleSet::sInServoTraversal = aSet;
+    sInServoTraversal = aSet;
   }
 
   ~AutoSetInServoTraversal()
   {
-    MOZ_ASSERT(ServoStyleSet::sInServoTraversal);
-    ServoStyleSet::sInServoTraversal = nullptr;
+    MOZ_ASSERT(sInServoTraversal);
+    sInServoTraversal = nullptr;
     mSet->RunPostTraversalTasks();
   }
 
@@ -221,6 +225,43 @@ ServoStyleSet::SetPresContext(nsPresContext* aPresContext)
   }
 
   return false;
+}
+
+void
+ServoStyleSet::InvalidateStyleForDocumentStateChanges(EventStates aStatesChanged)
+{
+  MOZ_ASSERT(IsMaster());
+  MOZ_ASSERT(mDocument);
+  MOZ_ASSERT(!aStatesChanged.IsEmpty());
+
+  nsPresContext* pc = GetPresContext();
+  if (!pc) {
+    return;
+  }
+
+  Element* root = mDocument->GetRootElement();
+  if (!root) {
+    return;
+  }
+
+  // TODO(emilio): It may be nicer to just invalidate stuff in a given subtree
+  // for XBL sheets / shadow DOM. Consider just enumerating bound content
+  // instead and run invalidation individually, passing mRawSet for the UA /
+  // User sheets.
+  AutoTArray<RawServoStyleSetBorrowed, 20> styleSets;
+  styleSets.AppendElement(mRawSet.get());
+  // FIXME(emilio): When bug 1425759 is fixed we need to enumerate ShadowRoots
+  // too.
+  mDocument->BindingManager()->EnumerateBoundContentBindings(
+    [&](nsXBLBinding* aBinding) {
+      if (ServoStyleSet* set = aBinding->PrototypeBinding()->GetServoStyleSet()) {
+        styleSets.AppendElement(set->RawSet());
+      }
+      return true;
+    });
+
+  Servo_InvalidateStyleForDocStateChanges(
+    root, &styleSets, aStatesChanged.ServoValue());
 }
 
 nsRestyleHint
@@ -1397,7 +1438,11 @@ ServoStyleSet::UpdateStylist()
     // since they are loaded and unloaded synchronously, and they don't have to
     // deal with dynamic content changes.
     Element* root = IsMaster() ? mDocument->GetRootElement() : nullptr;
-    Servo_StyleSet_FlushStyleSheets(mRawSet.get(), root);
+    const ServoElementSnapshotTable* snapshots = nullptr;
+    if (nsPresContext* pc = GetPresContext()) {
+      snapshots = &pc->RestyleManager()->AsServo()->Snapshots();
+    }
+    Servo_StyleSet_FlushStyleSheets(mRawSet.get(), root, snapshots);
   }
 
   if (MOZ_UNLIKELY(mStylistState & StylistState::XBLStyleSheetsDirty)) {

@@ -634,9 +634,12 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     // However, it's fast and simple. If / when we ever run into issues, we
     // can do some math on the projection matrix to work out a variable
     // amount to extrude.
-    float extrude_distance = 2.0;
-    local_segment_rect.p0 -= vec2(extrude_distance);
-    local_segment_rect.size += vec2(2.0 * extrude_distance);
+
+    // Only extrude along edges where we are going to apply AA.
+    float extrude_amount = 2.0;
+    vec4 extrude_distance = vec4(extrude_amount) * clip_edge_mask;
+    local_segment_rect.p0 -= extrude_distance.xy;
+    local_segment_rect.size += extrude_distance.xy + extrude_distance.zw;
 
     // Select the corner of the local rect that we are processing.
     vec2 local_pos = local_segment_rect.p0 + local_segment_rect.size * aPosition.xy;
@@ -672,7 +675,7 @@ VertexInfo write_transform_vertex_primitive(Primitive prim) {
         prim.local_rect,
         prim.local_rect,
         prim.local_clip_rect,
-        vec4(0.0),
+        vec4(1.0),
         prim.z,
         prim.scroll_node,
         prim.task
@@ -692,7 +695,7 @@ GlyphResource fetch_glyph_resource(int address) {
 }
 
 struct ImageResource {
-    vec4 uv_rect;
+    RectWithEndpoint uv_rect;
     float layer;
     vec3 user_data;
 };
@@ -700,12 +703,14 @@ struct ImageResource {
 ImageResource fetch_image_resource(int address) {
     //Note: number of blocks has to match `renderer::BLOCKS_PER_UV_RECT`
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    return ImageResource(data[0], data[1].x, data[1].yzw);
+    RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw);
 }
 
 ImageResource fetch_image_resource_direct(ivec2 address) {
     vec4 data[2] = fetch_from_resource_cache_2_direct(address);
-    return ImageResource(data[0], data[1].x, data[1].yzw);
+    RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw);
 }
 
 struct TextRun {
@@ -722,12 +727,11 @@ TextRun fetch_text_run(int address) {
 struct Image {
     vec4 stretch_size_and_tile_spacing;  // Size of the actual image and amount of space between
                                          //     tiled instances of this image.
-    vec4 sub_rect;                          // If negative, ignored.
 };
 
 Image fetch_image(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    return Image(data[0], data[1]);
+    vec4 data = fetch_from_resource_cache_1(address);
+    return Image(data);
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {

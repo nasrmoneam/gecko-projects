@@ -3,8 +3,6 @@
 # This configuration should be combined with suite definitions and other
 # mozharness configuration from android_common.py, or similar.
 
-import os
-
 config = {
     "deprecated_sdk_path": True,
     "robocop_package_name": "org.mozilla.roboexample.test",
@@ -25,6 +23,7 @@ config = {
     "emulator_extra_args": "-show-kernel -debug init,console,gles,memcheck,adbserver,adbclient,adb,avd_config,socket",
     "exes": {
         'adb': '%(abs_work_dir)s/android-sdk-linux/platform-tools/adb',
+        'tooltool.py': ['python', '/builds/worker/scripts/tooltool.py'],
     },
     "env": {
         "DISPLAY": ":0.0",
@@ -34,7 +33,5 @@ config = {
     "emulator": {
         "name": "test-1",
         "device_id": "emulator-5554",
-        "http_port": "8854",  # starting http port to use for the mochitest server
-        "ssl_port": "4454",  # starting ssl port to use for the server
     },
 }

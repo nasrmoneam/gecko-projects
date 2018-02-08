@@ -9,13 +9,13 @@
 const Preferences = window.Preferences = (function() {
   const { classes: Cc, interfaces: Ci, results: Cr, utils: Cu } = Components;
 
-  Cu.import("resource://gre/modules/EventEmitter.jsm");
-  Cu.import("resource://gre/modules/Services.jsm");
-  Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+  ChromeUtils.import("resource://gre/modules/EventEmitter.jsm");
+  ChromeUtils.import("resource://gre/modules/Services.jsm");
+  ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
   const lazy = {};
-  XPCOMUtils.defineLazyModuleGetter(lazy, "DeferredTask",
-                                    "resource://gre/modules/DeferredTask.jsm");
+  ChromeUtils.defineModuleGetter(lazy, "DeferredTask",
+                                 "resource://gre/modules/DeferredTask.jsm");
 
   function getElementsByAttribute(name, value) {
     // If we needed to defend against arbitrary values, we would escape
@@ -360,10 +360,21 @@ const Preferences = window.Preferences = (function() {
        * constructor or property getters appropriately handle this state.
        */
       function setValue(element, attribute, value) {
-        if (attribute in element)
+        if (attribute in element) {
           element[attribute] = value;
-        else
+        } else if (attribute === "checked") {
+          // The "checked" attribute can't simply be set to the specified value;
+          // it has to be set if the value is true and removed if the value
+          // is false in order to be interpreted correctly by the element.
+          if (value) {
+            // We can set it to anything; convention is to set it to itself.
+            element.setAttribute(attribute, attribute);
+          } else {
+            element.removeAttribute(attribute);
+          }
+        } else {
           element.setAttribute(attribute, value);
+        }
       }
       if (aElement.localName == "checkbox" ||
           aElement.localName == "listitem")

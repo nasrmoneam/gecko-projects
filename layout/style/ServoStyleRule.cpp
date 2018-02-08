@@ -60,13 +60,6 @@ ServoStyleRuleDeclaration::GetParentObject()
   return Rule()->GetDocument();
 }
 
-DocGroup*
-ServoStyleRuleDeclaration::GetDocGroup() const
-{
-  nsIDocument* document = Rule()->GetDocument();
-  return document ? document->GetDocGroup() : nullptr;
-}
-
 DeclarationBlock*
 ServoStyleRuleDeclaration::GetCSSDeclaration(Operation aOperation)
 {
@@ -77,7 +70,9 @@ nsresult
 ServoStyleRuleDeclaration::SetCSSDeclaration(DeclarationBlock* aDecl)
 {
   ServoStyleRule* rule = Rule();
-  if (RefPtr<ServoStyleSheet> sheet = rule->GetStyleSheet()->AsServo()) {
+  if (RefPtr<StyleSheet> sheet = rule->GetStyleSheet()) {
+    MOZ_ASSERT(sheet->IsServo(), "Servo style rules should have "
+                                 "servo stylesheets.");
     nsCOMPtr<nsIDocument> doc = sheet->GetAssociatedDocument();
     mozAutoDocUpdate updateBatch(doc, UPDATE_STYLE, true);
     if (aDecl != mDecls) {
@@ -206,7 +201,7 @@ ServoStyleRule::Type() const
 }
 
 void
-ServoStyleRule::GetCssTextImpl(nsAString& aCssText) const
+ServoStyleRule::GetCssText(nsAString& aCssText) const
 {
   Servo_StyleRule_GetCssText(mRawRule, &aCssText);
 }

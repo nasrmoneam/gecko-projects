@@ -40,6 +40,11 @@ SERVO_BINDING_FUNC(Servo_Element_IsDisplayNone,
 SERVO_BINDING_FUNC(Servo_Element_IsPrimaryStyleReusedViaRuleNode,
                    bool,
                    RawGeckoElementBorrowed element)
+SERVO_BINDING_FUNC(Servo_InvalidateStyleForDocStateChanges,
+                   void,
+                   RawGeckoElementBorrowed root,
+                   const nsTArray<RawServoStyleSetBorrowed>* sets,
+                   uint64_t aStatesChanged)
 
 // Styleset and Stylesheet management
 SERVO_BINDING_FUNC(Servo_StyleSheet_FromUTF8Bytes,
@@ -104,8 +109,10 @@ SERVO_BINDING_FUNC(Servo_StyleSet_InsertStyleSheetBefore, void,
                    RawServoStyleSetBorrowed set,
                    const mozilla::ServoStyleSheet* gecko_sheet,
                    const mozilla::ServoStyleSheet* before)
-SERVO_BINDING_FUNC(Servo_StyleSet_FlushStyleSheets, void, RawServoStyleSetBorrowed set,
-                   RawGeckoElementBorrowedOrNull doc_elem)
+SERVO_BINDING_FUNC(Servo_StyleSet_FlushStyleSheets, void,
+                   RawServoStyleSetBorrowed set,
+                   RawGeckoElementBorrowedOrNull doc_elem,
+                   const mozilla::ServoElementSnapshotTable* snapshots)
 SERVO_BINDING_FUNC(Servo_StyleSet_NoteStyleSheetsChanged, void,
                    RawServoStyleSetBorrowed set,
                    bool author_style_disabled,

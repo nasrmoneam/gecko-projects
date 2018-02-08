@@ -16,7 +16,7 @@ best to find a recent decision task's ``parameters.yml`` file, and modify that
 file if necessary, rather than starting from scratch.  This ensures you have a
 complete set of parameters.
 
-The properties of the parameters object are described here, divided rougly by
+The properties of the parameters object are described here, divided roughly by
 topic.
 
 Push Information
@@ -150,6 +150,9 @@ Release Promotion
 ``desktop_release_type``
    The type of desktop release being promoted. One of "beta", "devedition", "esr", "rc",
    or "release".
+
+ ``release_eta``
+   The time and date when a release is scheduled to live. This value is passed to Balrog.
 
 Comm Push Information
 ---------------------

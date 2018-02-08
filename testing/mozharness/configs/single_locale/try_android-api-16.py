@@ -16,7 +16,6 @@ config = {
     "locales_file": "%s/mobile/locales/l10n-changesets.json" % MOZILLA_DIR,
     "locales_dir": "mobile/android/locales",
     "ignore_locales": ["en-US"],
-    "nightly_build": False,
     'balrog_credentials_file': 'oauth.txt',
     "tools_repo": "https://hg.mozilla.org/build/tools",
     "tooltool_config": {
@@ -56,8 +55,6 @@ config = {
     },
     "upload_branch": "%s-android-api-16" % BRANCH,
     "ssh_key_dir": "~/.ssh",
-    "mozilla_dir": MOZILLA_DIR,
-    "mozconfig": "%s/mobile/android/config/mozconfigs/android-api-16/l10n-nightly" % MOZILLA_DIR,
     "signature_verification_script": "tools/release/signing/verify-android-signature.sh",
     "stage_product": "mobile",
     "platform": "android", # XXX Validate

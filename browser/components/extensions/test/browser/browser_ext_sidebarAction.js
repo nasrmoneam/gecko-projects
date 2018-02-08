@@ -6,8 +6,15 @@ requestLongerTimeout(2);
 
 let extData = {
   manifest: {
-    "sidebar_action": {
-      "default_panel": "sidebar.html",
+    commands: {
+      _execute_sidebar_action: {
+        suggested_key: {
+          default: "Ctrl+Shift+I",
+        },
+      },
+    },
+    sidebar_action: {
+      default_panel: "sidebar.html",
     },
   },
   useAddonManager: "temporary",
@@ -34,11 +41,12 @@ let extData = {
   background: function() {
     browser.test.onMessage.addListener(async ({msg, data}) => {
       if (msg === "set-panel") {
-        await browser.sidebarAction.setPanel({panel: ""}).then(() => {
-          browser.test.notifyFail("empty panel settable");
-        }).catch(() => {
-          browser.test.notifyPass("unable to set empty panel");
-        });
+        await browser.sidebarAction.setPanel({panel: null});
+        browser.test.assertEq(
+          await browser.sidebarAction.getPanel({}),
+          browser.runtime.getURL("sidebar.html"),
+          "Global panel can be reverted to the default."
+        );
       } else if (msg === "isOpen") {
         let {arg = {}, result} = data;
         let isOpen = await browser.sidebarAction.isOpen(arg);
@@ -96,7 +104,6 @@ add_task(async function sidebar_empty_panel() {
   await extension.awaitMessage("sidebar");
   ok(!document.getElementById("sidebar-box").hidden, "sidebar box is visible in first window");
   await sendMessage(extension, "set-panel");
-  await extension.awaitFinish();
   await extension.unload();
 });
 
@@ -109,6 +116,12 @@ add_task(async function sidebar_isOpen() {
   await extension1.awaitMessage("sidebar");
   await sendMessage(extension1, "isOpen", {result: true});
   let sidebar1ID = SidebarUI.currentID;
+
+  // Test that the key is set for the extension.
+  let button = document.getElementById(`button_${makeWidgetId(extension1.id)}-sidebar-action`);
+  ok(button.hasAttribute("key"), "The menu item has a key specified");
+  let key = document.getElementById(button.getAttribute("key"));
+  ok(key, "The key attribute finds the related key element");
 
   info("Load extension2");
   let extension2 = ExtensionTestUtils.loadExtension(extData);

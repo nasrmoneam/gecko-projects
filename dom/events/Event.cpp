@@ -14,6 +14,7 @@
 #include "mozilla/EventStateManager.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/dom/Performance.h"
+#include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/MiscEvents.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/Preferences.h"
@@ -33,7 +34,6 @@
 #include "nsLayoutUtils.h"
 #include "nsPIWindowRoot.h"
 #include "nsRFPService.h"
-#include "WorkerPrivate.h"
 
 namespace mozilla {
 namespace dom {
@@ -334,7 +334,7 @@ bool
 Event::Init(mozilla::dom::EventTarget* aGlobal)
 {
   if (!mIsMainThreadEvent) {
-    return workers::IsCurrentThreadRunningChromeWorker();
+    return IsCurrentThreadRunningChromeWorker();
   }
   bool trusted = false;
   nsCOMPtr<nsPIDOMWindowInner> w = do_QueryInterface(aGlobal);
@@ -1118,8 +1118,7 @@ Event::TimeStampImpl() const
     return perf->GetDOMTiming()->TimeStampToDOMHighRes(mEvent->mTimeStamp);
   }
 
-  workers::WorkerPrivate* workerPrivate =
-    workers::GetCurrentThreadWorkerPrivate();
+  WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
   MOZ_ASSERT(workerPrivate);
 
   return workerPrivate->TimeStampToDOMHighRes(mEvent->mTimeStamp);

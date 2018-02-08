@@ -42,6 +42,7 @@
 #include "nsIDocShell.h"
 #include "nsINetworkInterceptController.h"
 #include "mozilla/dom/Performance.h"
+#include "mozilla/dom/PerformanceStorage.h"
 #include "mozIThirdPartyUtil.h"
 #include "nsStreamUtils.h"
 #include "nsThreadUtils.h"
@@ -1567,7 +1568,8 @@ HttpBaseChannel::GetReferrer(nsIURI **referrer)
 NS_IMETHODIMP
 HttpBaseChannel::SetReferrer(nsIURI *referrer)
 {
-  return SetReferrerWithPolicy(referrer, NS_GetDefaultReferrerPolicy());
+  bool isPrivate = mLoadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
+  return SetReferrerWithPolicy(referrer, NS_GetDefaultReferrerPolicy(isPrivate));
 }
 
 NS_IMETHODIMP
@@ -1624,7 +1626,8 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI *referrer,
   }
 
   if (mReferrerPolicy == REFERRER_POLICY_UNSET) {
-    mReferrerPolicy = NS_GetDefaultReferrerPolicy();
+    bool isPrivate = mLoadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
+    mReferrerPolicy = NS_GetDefaultReferrerPolicy(isPrivate);
   }
 
   if (!referrer) {
@@ -3077,7 +3080,7 @@ HttpBaseChannel::ShouldIntercept(nsIURI* aURI)
 
   if (controller && mLoadInfo && !BypassServiceWorker() && !internalRedirect) {
     nsresult rv = controller->ShouldPrepareForIntercept(aURI ? aURI : mURI.get(),
-                                                        nsContentUtils::IsNonSubresourceRequest(this),
+                                                        this,
                                                         &shouldIntercept);
     if (NS_FAILED(rv)) {
       return false;
@@ -4153,8 +4156,8 @@ IMPL_TIMING_ATTR(RedirectEnd)
 
 #undef IMPL_TIMING_ATTR
 
-mozilla::dom::Performance*
-HttpBaseChannel::GetPerformance()
+mozilla::dom::PerformanceStorage*
+HttpBaseChannel::GetPerformanceStorage()
 {
   // If performance timing is disabled, there is no need for the Performance
   // object anymore.
@@ -4170,6 +4173,12 @@ HttpBaseChannel::GetPerformance()
 
   if (!mLoadInfo) {
     return nullptr;
+  }
+
+  // If a custom performance storage is set, let's use it.
+  mozilla::dom::PerformanceStorage* performanceStorage = mLoadInfo->GetPerformanceStorage();
+  if (performanceStorage) {
+    return performanceStorage;
   }
 
   // We don't need to report the resource timing entry for a TYPE_DOCUMENT load.
@@ -4201,12 +4210,12 @@ HttpBaseChannel::GetPerformance()
     return nullptr;
   }
 
-  mozilla::dom::Performance* docPerformance = innerWindow->GetPerformance();
-  if (!docPerformance) {
+  mozilla::dom::Performance* performance = innerWindow->GetPerformance();
+  if (!performance) {
     return nullptr;
   }
 
-  return docPerformance;
+  return performance->AsPerformanceStorage();
 }
 
 NS_IMETHODIMP

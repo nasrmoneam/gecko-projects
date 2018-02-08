@@ -69,6 +69,8 @@ loader.lazyRequireGetter(this, "viewSource",
   "devtools/client/shared/view-source");
 loader.lazyRequireGetter(this, "StyleSheetsFront",
   "devtools/shared/fronts/stylesheets", true);
+loader.lazyRequireGetter(this, "buildHarLog",
+  "devtools/client/netmonitor/src/har/har-builder-utils", true);
 
 loader.lazyGetter(this, "domNodeConstants", () => {
   return require("devtools/shared/dom-node-constants");
@@ -2577,18 +2579,6 @@ Toolbox.prototype = {
       // in the initialization process can throw errors.
       yield this._initInspector;
 
-      // Releasing the walker (if it has been created)
-      // This can fail, but in any case, we want to continue destroying the
-      // inspector/highlighter/selection
-      // FF42+: Inspector actor starts managing Walker actor and auto destroy it.
-      if (this._walker && !this.walker.traits.autoReleased) {
-        try {
-          yield this._walker.release();
-        } catch (e) {
-          // Do nothing;
-        }
-      }
-
       yield this.highlighterUtils.stopPicker();
       yield this._inspector.destroy();
       if (this._highlighter) {
@@ -3006,4 +2996,21 @@ Toolbox.prototype = {
   viewSource: function (sourceURL, sourceLine) {
     return viewSource.viewSource(this, sourceURL, sourceLine);
   },
+
+  /**
+   * Returns data (HAR) collected by the Network panel.
+   */
+  getHARFromNetMonitor: function () {
+    let netPanel = this.getPanel("netmonitor");
+
+    // The panel doesn't have to exist (it must be selected
+    // by the user at least once to be created).
+    // Return default empty HAR file in such case.
+    if (!netPanel) {
+      return Promise.resolve(buildHarLog(Services.appinfo));
+    }
+
+    // Use Netmonitor object to get the current HAR log.
+    return netPanel.panelWin.Netmonitor.getHar();
+  }
 };

@@ -7,19 +7,21 @@ const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 
 this.EXPORTED_SYMBOLS = ["CustomizableWidgets"];
 
-Cu.import("resource:///modules/CustomizableUI.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/AppConstants.jsm");
+ChromeUtils.import("resource:///modules/CustomizableUI.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   BrowserUITelemetry: "resource:///modules/BrowserUITelemetry.jsm",
+  PanelView: "resource:///modules/PanelMultiView.jsm",
   PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
   PlacesUIUtils: "resource:///modules/PlacesUIUtils.jsm",
   RecentlyClosedTabsAndWindowsMenuUtils: "resource:///modules/sessionstore/RecentlyClosedTabsAndWindowsMenuUtils.jsm",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.jsm",
   CharsetMenu: "resource://gre/modules/CharsetMenu.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
+  Sanitizer: "resource:///modules/Sanitizer.jsm",
   SyncedTabs: "resource://services-sync/SyncedTabs.jsm",
 });
 
@@ -37,7 +39,7 @@ const kPrefCustomizationDebug = "browser.uiCustomization.debug";
 
 XPCOMUtils.defineLazyGetter(this, "log", () => {
   let scope = {};
-  Cu.import("resource://gre/modules/Console.jsm", scope);
+  ChromeUtils.import("resource://gre/modules/Console.jsm", scope);
   let debug = Services.prefs.getBoolPref(kPrefCustomizationDebug, false);
   let consoleOptions = {
     maxLogLevel: debug ? "all" : "log",
@@ -366,8 +368,8 @@ const CustomizableWidgets = [
           }
         }
         this._tabsList.appendChild(fragment);
-        let panelView = this._tabsList.closest("panelview");
-        panelView.panelMultiView.descriptionHeightWorkaround(panelView);
+        PanelView.forNode(this._tabsList.closest("panelview"))
+                 .descriptionHeightWorkaround();
       }).catch(err => {
         Cu.reportError(err);
       }).then(() => {
@@ -896,25 +898,9 @@ if (Services.prefs.getBoolPref("privacy.panicButton.enabled")) {
     id: "panic-button",
     type: "view",
     viewId: "PanelUI-panicView",
-    _sanitizer: null,
-    _ensureSanitizer() {
-      if (!this.sanitizer) {
-        let scope = {};
-        Services.scriptloader.loadSubScript("chrome://browser/content/sanitize.js",
-                                            scope);
-        this._Sanitizer = scope.Sanitizer;
-        this._sanitizer = new scope.Sanitizer();
-        this._sanitizer.ignoreTimespan = false;
-      }
-    },
-    _getSanitizeRange(aDocument) {
-      let group = aDocument.getElementById("PanelUI-panic-timeSpan");
-      return this._Sanitizer.getClearRange(+group.value);
-    },
+
     forgetButtonCalled(aEvent) {
       let doc = aEvent.target.ownerDocument;
-      this._ensureSanitizer();
-      this._sanitizer.range = this._getSanitizeRange(doc);
       let group = doc.getElementById("PanelUI-panic-timeSpan");
       BrowserUITelemetry.countPanicEvent(group.selectedItem.id);
       group.selectedItem = doc.getElementById("PanelUI-panic-5min");
@@ -923,8 +909,11 @@ if (Services.prefs.getBoolPref("privacy.panicButton.enabled")) {
       ];
       let newWindowPrivateState = PrivateBrowsingUtils.isWindowPrivate(doc.defaultView) ?
                                   "private" : "non-private";
-      this._sanitizer.items.openWindows.privateStateForNewWindow = newWindowPrivateState;
-      let promise = this._sanitizer.sanitize(itemsToClear);
+      let promise = Sanitizer.sanitize(itemsToClear, {
+        ignoreTimespan: false,
+        range: Sanitizer.getClearRange(+group.value),
+        privateStateForNewWindow: newWindowPrivateState,
+      });
       promise.then(function() {
         let otherWindow = Services.wm.getMostRecentWindow("navigator:browser");
         if (otherWindow.closed) {

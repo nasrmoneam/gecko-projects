@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from __future__ import absolute_import
+
 import imp
 import os
 import re
@@ -142,7 +144,7 @@ class CommonTestCase(unittest.TestCase):
                 raise
             except _ExpectedFailure as e:
                 expected_failure(result, e.exc_info)
-            except:
+            except Exception:
                 self._enter_pm()
                 result.addError(self, sys.exc_info())
             else:
@@ -150,7 +152,7 @@ class CommonTestCase(unittest.TestCase):
                     if self.expected == 'fail':
                         try:
                             testMethod()
-                        except:
+                        except Exception:
                             raise _ExpectedFailure(sys.exc_info())
                         raise _UnexpectedSuccess
                     else:
@@ -173,7 +175,7 @@ class CommonTestCase(unittest.TestCase):
                         result.addFailure(self, sys.exc_info())
                 except SkipTest as e:
                     self._addSkip(result, str(e))
-                except:
+                except Exception:
                     self._enter_pm()
                     result.addError(self, sys.exc_info())
                 else:
@@ -182,7 +184,7 @@ class CommonTestCase(unittest.TestCase):
                     if self.expected == "fail":
                         try:
                             self.tearDown()
-                        except:
+                        except Exception:
                             raise _ExpectedFailure(sys.exc_info())
                     else:
                         self.tearDown()
@@ -190,7 +192,7 @@ class CommonTestCase(unittest.TestCase):
                     raise
                 except _ExpectedFailure as e:
                     expected_failure(result, e.exc_info)
-                except:
+                except Exception:
                     self._enter_pm()
                     result.addError(self, sys.exc_info())
                     success = False

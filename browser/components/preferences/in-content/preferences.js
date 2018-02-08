@@ -20,16 +20,18 @@ var Ci = Components.interfaces;
 var Cu = Components.utils;
 var Cr = Components.results;
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/AppConstants.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "ExtensionSettingsStore",
-                                  "resource://gre/modules/ExtensionSettingsStore.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "AddonManager",
-                                  "resource://gre/modules/AddonManager.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "formAutofillParent",
-                                  "resource://formautofill/FormAutofillParent.jsm");
+ChromeUtils.defineModuleGetter(this, "AddonManager",
+                               "resource://gre/modules/AddonManager.jsm");
+ChromeUtils.defineModuleGetter(this, "BrowserUtils",
+                               "resource://gre/modules/BrowserUtils.jsm");
+ChromeUtils.defineModuleGetter(this, "ExtensionSettingsStore",
+                               "resource://gre/modules/ExtensionSettingsStore.jsm");
+ChromeUtils.defineModuleGetter(this, "formAutofillParent",
+                               "resource://formautofill/FormAutofillParent.jsm");
 
 XPCOMUtils.defineLazyPreferenceGetter(this, "trackingprotectionUiEnabled",
                                       "privacy.trackingprotection.ui.enabled");
@@ -495,11 +497,6 @@ async function showControllingExtension(settingName, addon) {
   let elements = getControllingExtensionEls(settingName);
 
   elements.section.classList.remove("extension-controlled-disabled");
-  const defaultIcon = "chrome://mozapps/skin/extensions/extensionGeneric.svg";
-  let stringParts = document
-    .getElementById("bundlePreferences")
-    .getString(`extensionControlled.${settingName}`)
-    .split("%S");
   let description = elements.description;
 
   // Remove the old content from the description.
@@ -508,13 +505,17 @@ async function showControllingExtension(settingName, addon) {
   }
 
   // Populate the description.
-  description.appendChild(document.createTextNode(stringParts[0]));
+  let msg = document.getElementById("bundlePreferences")
+                    .getString(`extensionControlled.${settingName}`);
   let image = document.createElement("image");
+  const defaultIcon = "chrome://mozapps/skin/extensions/extensionGeneric.svg";
   image.setAttribute("src", addon.iconURL || defaultIcon);
   image.classList.add("extension-controlled-icon");
-  description.appendChild(image);
-  description.appendChild(document.createTextNode(` ${addon.name}`));
-  description.appendChild(document.createTextNode(stringParts[1]));
+  let addonBit = document.createDocumentFragment();
+  addonBit.appendChild(image);
+  addonBit.appendChild(document.createTextNode(" " + addon.name));
+  let fragment = BrowserUtils.getLocalizedFragment(document, msg, addonBit);
+  description.appendChild(fragment);
 
   if (elements.button) {
     elements.button.hidden = false;
@@ -537,14 +538,19 @@ function showEnableExtensionMessage(settingName) {
 
   elements.button.hidden = true;
   elements.section.classList.add("extension-controlled-disabled");
-  let icon = url => `<image src="${url}" class="extension-controlled-icon"/>`;
+  let icon = url => {
+    let img = document.createElement("image");
+    img.src = url;
+    img.className = "extension-controlled-icon";
+    return img;
+  };
   let addonIcon = icon("chrome://mozapps/skin/extensions/extensionGeneric-16.svg");
   let toolbarIcon = icon("chrome://browser/skin/menu.svg");
-  let message = document
-    .getElementById("bundlePreferences")
-    .getFormattedString("extensionControlled.enable", [addonIcon, toolbarIcon]);
-  // eslint-disable-next-line no-unsanitized/property
-  elements.description.innerHTML = message;
+  let message = document.getElementById("bundlePreferences")
+                        .getString("extensionControlled.enable");
+  let frag = BrowserUtils.getLocalizedFragment(document, message, addonIcon, toolbarIcon);
+  elements.description.innerHTML = "";
+  elements.description.appendChild(frag);
   let dismissButton = document.createElement("image");
   dismissButton.setAttribute("class", "extension-controlled-icon close-icon");
   dismissButton.addEventListener("click", function dismissHandler() {

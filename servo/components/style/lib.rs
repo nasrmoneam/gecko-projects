@@ -23,10 +23,7 @@
 //! [cssparser]: ../cssparser/index.html
 //! [selectors]: ../selectors/index.html
 
-#![deny(warnings)]
 #![deny(missing_docs)]
-
-#![recursion_limit = "500"]  // For define_css_keyword_enum! in -moz-appearance
 
 extern crate app_units;
 extern crate arrayvec;
@@ -73,7 +70,6 @@ extern crate smallbitvec;
 extern crate smallvec;
 #[macro_use]
 extern crate style_derive;
-#[macro_use]
 extern crate style_traits;
 extern crate time;
 extern crate uluru;
@@ -134,8 +130,8 @@ pub mod traversal_flags;
 #[allow(non_camel_case_types)]
 pub mod values;
 
-use std::fmt;
-use style_traits::ToCss;
+use std::fmt::{self, Write};
+use style_traits::{CssWriter, ToCss};
 
 #[cfg(feature = "gecko")] pub use gecko_string_cache as string_cache;
 #[cfg(feature = "gecko")] pub use gecko_string_cache::Atom;
@@ -181,11 +177,13 @@ longhand_properties_idents!(reexport_computed_values);
 
 /// Serializes as CSS a comma-separated list of any `T` that supports being
 /// serialized as CSS.
-pub fn serialize_comma_separated_list<W, T>(dest: &mut W,
-                                            list: &[T])
-                                            -> fmt::Result
-    where W: fmt::Write,
-          T: ToCss,
+pub fn serialize_comma_separated_list<W, T>(
+    dest: &mut CssWriter<W>,
+    list: &[T],
+) -> fmt::Result
+where
+    W: Write,
+    T: ToCss,
 {
     if list.is_empty() {
         return Ok(());

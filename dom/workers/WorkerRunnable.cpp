@@ -23,7 +23,8 @@
 #include "WorkerPrivate.h"
 #include "WorkerScope.h"
 
-USING_WORKERS_NAMESPACE
+namespace mozilla {
+namespace dom {
 
 namespace {
 
@@ -283,7 +284,7 @@ WorkerRunnable::Run()
   MOZ_ASSERT(isMainThread == NS_IsMainThread());
   RefPtr<WorkerPrivate> kungFuDeathGrip;
   if (targetIsWorkerThread) {
-    JSContext* cx = GetCurrentThreadJSContext();
+    JSContext* cx = GetCurrentWorkerThreadJSContext();
     if (NS_WARN_IF(!cx)) {
       return NS_ERROR_FAILURE;
     }
@@ -562,7 +563,7 @@ NS_IMPL_ISUPPORTS_INHERITED0(WorkerControlRunnable, WorkerRunnable)
 WorkerMainThreadRunnable::WorkerMainThreadRunnable(
   WorkerPrivate* aWorkerPrivate,
   const nsACString& aTelemetryKey)
-  : mozilla::Runnable("dom::workers::WorkerMainThreadRunnable")
+  : mozilla::Runnable("dom::WorkerMainThreadRunnable")
   , mWorkerPrivate(aWorkerPrivate)
   , mTelemetryKey(aTelemetryKey)
 {
@@ -570,7 +571,8 @@ WorkerMainThreadRunnable::WorkerMainThreadRunnable(
 }
 
 void
-WorkerMainThreadRunnable::Dispatch(Status aFailStatus, ErrorResult& aRv)
+WorkerMainThreadRunnable::Dispatch(WorkerStatus aFailStatus,
+                                   mozilla::ErrorResult& aRv)
 {
   mWorkerPrivate->AssertIsOnWorkerThread();
 
@@ -665,7 +667,7 @@ WorkerSameThreadRunnable::PostDispatch(WorkerPrivate* aWorkerPrivate,
 
 WorkerProxyToMainThreadRunnable::WorkerProxyToMainThreadRunnable(
   WorkerPrivate* aWorkerPrivate)
-  : mozilla::Runnable("dom::workers::WorkerProxyToMainThreadRunnable")
+  : mozilla::Runnable("dom::WorkerProxyToMainThreadRunnable")
   , mWorkerPrivate(aWorkerPrivate)
 {
   MOZ_ASSERT(mWorkerPrivate);
@@ -729,7 +731,7 @@ WorkerProxyToMainThreadRunnable::PostDispatchOnMainThread()
     }
 
     virtual bool
-    WorkerRun(JSContext* aCx, workers::WorkerPrivate* aWorkerPrivate) override
+    WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
     {
       MOZ_ASSERT(aWorkerPrivate);
       aWorkerPrivate->AssertIsOnWorkerThread();
@@ -768,7 +770,7 @@ WorkerProxyToMainThreadRunnable::HoldWorker()
       : WorkerHolder("WorkerProxyToMainThreadRunnable::SimpleWorkerHolder")
     {}
 
-    bool Notify(Status aStatus) override
+    bool Notify(WorkerStatus aStatus) override
     {
       // We don't care about the notification. We just want to keep the
       // mWorkerPrivate alive.
@@ -792,3 +794,6 @@ WorkerProxyToMainThreadRunnable::ReleaseWorker()
   MOZ_ASSERT(mWorkerHolder);
   mWorkerHolder = nullptr;
 }
+
+} // dom namespace
+} // mozilla namespace

@@ -29,7 +29,7 @@ use std::rc::Rc;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 use style_traits::{CSSPixel, DevicePixel, PinchZoomFactor};
-use style_traits::cursor::Cursor;
+use style_traits::cursor::CursorKind;
 use style_traits::viewport::ViewportConstraints;
 use time::{precise_time_ns, precise_time_s};
 use touch::{TouchHandler, TouchAction};
@@ -70,7 +70,7 @@ impl ConvertPipelineIdFromWebRender for webrender_api::PipelineId {
 
 /// Holds the state when running reftests that determines when it is
 /// safe to save the output image.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum ReadyState {
     Unknown,
     WaitingForConstellationReply,
@@ -495,7 +495,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             }
 
             (Msg::IsReadyToSaveImageReply(is_ready), ShutdownState::NotShuttingDown) => {
-                assert!(self.ready_to_save_state == ReadyState::WaitingForConstellationReply);
+                assert_eq!(self.ready_to_save_state, ReadyState::WaitingForConstellationReply);
                 if is_ready {
                     self.ready_to_save_state = ReadyState::ReadyToSaveImage;
                     if opts::get().is_running_problem_test {
@@ -609,8 +609,10 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         self.root_pipeline = Some(frame_tree.pipeline.clone());
 
         let pipeline_id = frame_tree.pipeline.id.to_webrender();
-        self.webrender_api.set_root_pipeline(self.webrender_document, pipeline_id);
-        self.webrender_api.generate_frame(self.webrender_document, None);
+        let mut txn = webrender_api::Transaction::new();
+        txn.set_root_pipeline(pipeline_id);
+        txn.generate_frame();
+        self.webrender_api.send_transaction(self.webrender_document, txn);
 
         self.create_pipeline_details_for_frame_tree(&frame_tree);
 
@@ -769,7 +771,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 warn!("Sending event to constellation failed ({}).", e);
             }
 
-            if let Some(cursor) =  Cursor::from_u8(item.tag.1 as _).ok() {
+            if let Some(cursor) =  CursorKind::from_u8(item.tag.1 as _).ok() {
                 let msg = ConstellationMsg::SetCursor(cursor);
                 if let Err(e) = self.constellation_chan.send(msg) {
                     warn!("Sending event to constellation failed ({}).", e);
@@ -992,7 +994,9 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                         (combined_event.cursor.to_f32() / self.scale).to_untyped();
                     let location = webrender_api::ScrollLocation::Delta(delta);
                     let cursor = webrender_api::WorldPoint::from_untyped(&cursor);
-                    self.webrender_api.scroll(self.webrender_document, location, cursor, combined_event.phase);
+                    let mut txn = webrender_api::Transaction::new();
+                    txn.scroll(location, cursor, combined_event.phase);
+                    self.webrender_api.send_transaction(self.webrender_document, txn);
                     last_combined_event = None
                 }
             }
@@ -1047,7 +1051,9 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             };
             let cursor = (combined_event.cursor.to_f32() / self.scale).to_untyped();
             let cursor = webrender_api::WorldPoint::from_untyped(&cursor);
-            self.webrender_api.scroll(self.webrender_document, scroll_location, cursor, combined_event.phase);
+            let mut txn = webrender_api::Transaction::new();
+            txn.scroll(scroll_location, cursor, combined_event.phase);
+            self.webrender_api.send_transaction(self.webrender_document, txn);
             self.waiting_for_results_of_scroll = true
         }
 
@@ -1145,7 +1151,10 @@ impl<Window: WindowMethods> IOCompositor<Window> {
 
     fn update_page_zoom_for_webrender(&mut self) {
         let page_zoom = webrender_api::ZoomFactor::new(self.page_zoom.get());
-        self.webrender_api.set_page_zoom(self.webrender_document, page_zoom);
+
+        let mut txn = webrender_api::Transaction::new();
+        txn.set_page_zoom(page_zoom);
+        self.webrender_api.send_transaction(self.webrender_document, txn);
     }
 
     /// Simulate a pinch zoom
@@ -1399,6 +1408,14 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 width: usize,
                 height: usize)
                 -> RgbImage {
+        // For some reason, OSMesa fails to render on the 3rd
+        // attempt in headless mode, under some conditions.
+        // I think this can only be some kind of synchronization
+        // bug in OSMesa, but explicitly un-binding any vertex
+        // array here seems to work around that bug.
+        // See https://github.com/servo/servo/issues/18606.
+        self.gl.bind_vertex_array(0);
+
         let mut pixels = self.gl.read_pixels(0, 0,
                                              width as gl::GLsizei,
                                              height as gl::GLsizei,
@@ -1443,7 +1460,9 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         }
 
         if self.webrender.layers_are_bouncing_back() {
-            self.webrender_api.tick_scrolling_bounce_animations(self.webrender_document);
+            let mut txn = webrender_api::Transaction::new();
+            txn.tick_scrolling_bounce_animations();
+            self.webrender_api.send_transaction(self.webrender_document, txn);
             self.send_viewport_rects()
         }
     }
@@ -1537,7 +1556,10 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         };
         flags.toggle(flag);
         self.webrender.set_debug_flags(flags);
-        self.webrender_api.generate_frame(self.webrender_document, None);
+
+        let mut txn = webrender_api::Transaction::new();
+        txn.generate_frame();
+        self.webrender_api.send_transaction(self.webrender_document, txn);
     }
 }
 

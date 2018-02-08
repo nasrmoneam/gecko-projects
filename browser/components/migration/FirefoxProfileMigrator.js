@@ -15,22 +15,22 @@
 
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource:///modules/MigrationUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource:///modules/MigrationUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "PlacesBackups",
-                                  "resource://gre/modules/PlacesBackups.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "SessionMigration",
-                                  "resource:///modules/sessionstore/SessionMigration.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "OS",
-                                  "resource://gre/modules/osfile.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "FileUtils",
-                                  "resource://gre/modules/FileUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "ProfileAge",
-                                  "resource://gre/modules/ProfileAge.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
-                                  "resource://gre/modules/AppConstants.jsm");
+ChromeUtils.defineModuleGetter(this, "PlacesBackups",
+                               "resource://gre/modules/PlacesBackups.jsm");
+ChromeUtils.defineModuleGetter(this, "SessionMigration",
+                               "resource:///modules/sessionstore/SessionMigration.jsm");
+ChromeUtils.defineModuleGetter(this, "OS",
+                               "resource://gre/modules/osfile.jsm");
+ChromeUtils.defineModuleGetter(this, "FileUtils",
+                               "resource://gre/modules/FileUtils.jsm");
+ChromeUtils.defineModuleGetter(this, "ProfileAge",
+                               "resource://gre/modules/ProfileAge.jsm");
+ChromeUtils.defineModuleGetter(this, "AppConstants",
+                               "resource://gre/modules/AppConstants.jsm");
 
 
 function FirefoxProfileMigrator() {
@@ -61,11 +61,9 @@ function sorter(a, b) {
   return a.id.toLocaleLowerCase().localeCompare(b.id.toLocaleLowerCase());
 }
 
-Object.defineProperty(FirefoxProfileMigrator.prototype, "sourceProfiles", {
-  get() {
-    return [...this._getAllProfiles().keys()].map(x => ({id: x, name: x})).sort(sorter);
-  }
-});
+FirefoxProfileMigrator.prototype.getSourceProfiles = function() {
+  return [...this._getAllProfiles().keys()].map(x => ({id: x, name: x})).sort(sorter);
+};
 
 FirefoxProfileMigrator.prototype._getFileObject = function(dir, fileName) {
   let file = dir.clone();
@@ -122,7 +120,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
           file.copyTo(currentProfileDir, "");
         }
         aCallback(true);
-      }
+      },
     };
   };
 
@@ -181,7 +179,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
           }, function() {
             aCallback(false);
           });
-        }
+        },
       };
     }
   }
@@ -214,7 +212,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
         return;
       }
       aCallback(true);
-    }
+    },
   };
 
   // Telemetry related migrations.
@@ -232,7 +230,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
         () => aCallback(true),
         () => aCallback(false)
       );
-    }
+    },
   };
   let telemetry = {
     name: "telemetry", // name is used only by tests...
@@ -256,7 +254,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
         let enumerator = dataReportingDir.directoryEntries;
         while (enumerator.hasMoreElements()) {
           let file = enumerator.getNext().QueryInterface(Ci.nsIFile);
-          if (file.isDirectory() || toCopy.indexOf(file.leafName) == -1) {
+          if (file.isDirectory() || !toCopy.includes(file.leafName)) {
             continue;
           }
 
@@ -283,7 +281,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
       }
 
       aCallback(true);
-    }
+    },
   };
 
   return [places, cookies, passwords, formData, dictionary, bookmarksBackups,
@@ -291,7 +289,7 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
 };
 
 Object.defineProperty(FirefoxProfileMigrator.prototype, "startupOnlyMigrator", {
-  get: () => true
+  get: () => true,
 });
 
 

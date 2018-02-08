@@ -10,8 +10,8 @@ const Ci = Components.interfaces;
 const Cc = Components.classes;
 const Cr = Components.results;
 
-Components.utils.import("resource://gre/modules/AppConstants.jsm");
-Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 this.Services = {};
 
@@ -49,7 +49,7 @@ XPCOMUtils.defineLazyGetter(Services, "dirsvc", function() {
 if (AppConstants.MOZ_CRASHREPORTER) {
   XPCOMUtils.defineLazyGetter(Services, "crashmanager", () => {
     let ns = {};
-    Components.utils.import("resource://gre/modules/CrashManager.jsm", ns);
+    ChromeUtils.import("resource://gre/modules/CrashManager.jsm", ns);
 
     return ns.CrashManager.Singleton;
   });
@@ -121,6 +121,9 @@ if (AppConstants.MOZ_GECKO_PROFILER) {
 }
 if (AppConstants.MOZ_TOOLKIT_SEARCH) {
   initTable.search = ["@mozilla.org/browser/search-service;1", "nsIBrowserSearchService"];
+}
+if (AppConstants.MOZ_BUILD_APP == "browser") {
+  initTable.policies = ["@mozilla.org/browser/enterprisepolicies;1", "nsIEnterprisePolicies"];
 }
 
 XPCOMUtils.defineLazyServiceGetters(Services, initTable);

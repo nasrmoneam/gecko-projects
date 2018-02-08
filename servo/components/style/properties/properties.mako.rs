@@ -12,12 +12,14 @@
 
 #[cfg(feature = "servo")]
 use app_units::Au;
+use dom::TElement;
 use custom_properties::CustomPropertiesBuilder;
 use servo_arc::{Arc, UniqueArc};
 use smallbitvec::SmallBitVec;
 use std::borrow::Cow;
-use std::{fmt, mem, ops};
+use std::{mem, ops};
 use std::cell::RefCell;
+use std::fmt::{self, Write};
 
 #[cfg(feature = "servo")] use cssparser::RGBA;
 use cssparser::{CowRcStr, Parser, TokenSerializationType, serialize_identifier};
@@ -38,7 +40,7 @@ use selector_parser::PseudoElement;
 use selectors::parser::SelectorParseErrorKind;
 #[cfg(feature = "servo")] use servo_config::prefs::PREFS;
 use shared_lock::StylesheetGuards;
-use style_traits::{ParsingMode, ToCss, ParseError, StyleParseErrorKind};
+use style_traits::{CssWriter, ParseError, ParsingMode, StyleParseErrorKind, ToCss};
 use stylesheets::{CssRuleType, Origin, UrlExtraData};
 #[cfg(feature = "servo")] use values::Either;
 use values::generics::text::LineHeight;
@@ -46,6 +48,7 @@ use values::computed;
 use values::computed::NonNegativeLength;
 use rule_tree::{CascadeLevel, StrongRuleNode};
 use self::computed_value_flags::*;
+use str::{CssString, CssStringBorrow, CssStringWriter};
 use style_adjuster::StyleAdjuster;
 
 pub use self::declaration_block::*;
@@ -793,10 +796,6 @@ impl LonghandId {
             LonghandId::BorderImageSource |
             LonghandId::BoxShadow |
             LonghandId::MaskImage |
-            LonghandId::MozBorderBottomColors |
-            LonghandId::MozBorderLeftColors |
-            LonghandId::MozBorderRightColors |
-            LonghandId::MozBorderTopColors |
             LonghandId::TextShadow
         )
         % else:
@@ -856,9 +855,14 @@ impl ShorthandId {
     ///
     /// Returns an error if writing to the stream fails, or if the declarations
     /// do not map to a shorthand.
-    pub fn longhands_to_css<'a, W, I>(&self, declarations: I, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
-              I: Iterator<Item=&'a PropertyDeclaration>,
+    pub fn longhands_to_css<'a, W, I>(
+        &self,
+        declarations: I,
+        dest: &mut CssWriter<W>,
+    ) -> fmt::Result
+    where
+        W: Write,
+        I: Iterator<Item=&'a PropertyDeclaration>,
     {
         match *self {
             ShorthandId::All => {
@@ -902,7 +906,7 @@ impl ShorthandId {
         if let Some(css) = first_declaration.with_variables_from_shorthand(self) {
             if declarations2.all(|d| d.with_variables_from_shorthand(self) == Some(css)) {
                return Some(AppendableValue::Css {
-                   css: css,
+                   css: CssStringBorrow::from(css),
                    with_variables: true,
                });
             }
@@ -913,7 +917,7 @@ impl ShorthandId {
         if let Some(keyword) = first_declaration.get_css_wide_keyword() {
             if declarations2.all(|d| d.get_css_wide_keyword() == Some(keyword)) {
                 return Some(AppendableValue::Css {
-                    css: keyword.to_str(),
+                    css: CssStringBorrow::from(keyword.to_str()),
                     with_variables: false,
                 });
             }
@@ -1076,8 +1080,9 @@ impl UnparsedValue {
 }
 
 impl<'a, T: ToCss> ToCss for DeclaredValue<'a, T> {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
     {
         match *self {
             DeclaredValue::Value(ref inner) => inner.to_css(dest),
@@ -1105,8 +1110,9 @@ pub enum PropertyDeclarationId<'a> {
 }
 
 impl<'a> ToCss for PropertyDeclarationId<'a> {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
     {
         match *self {
             PropertyDeclarationId::Longhand(id) => dest.write_str(id.name()),
@@ -1151,7 +1157,6 @@ impl<'a> PropertyDeclarationId<'a> {
         match *self {
             PropertyDeclarationId::Longhand(id) => id.name().into(),
             PropertyDeclarationId::Custom(name) => {
-                use std::fmt::Write;
                 let mut s = String::new();
                 write!(&mut s, "--{}", name).unwrap();
                 s.into()
@@ -1178,13 +1183,14 @@ pub enum PropertyId {
 
 impl fmt::Debug for PropertyId {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        self.to_css(formatter)
+        self.to_css(&mut CssWriter::new(formatter))
     }
 }
 
 impl ToCss for PropertyId {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
     {
         match *self {
             PropertyId::Longhand(id) => dest.write_str(id.name()),
@@ -1332,7 +1338,6 @@ impl PropertyId {
             PropertyId::LonghandAlias(id, _) |
             PropertyId::Longhand(id) => id.name().into(),
             PropertyId::Custom(ref name) => {
-                use std::fmt::Write;
                 let mut s = String::new();
                 write!(&mut s, "--{}", name).unwrap();
                 s.into()
@@ -1465,22 +1470,32 @@ pub enum PropertyDeclaration {
 
 impl fmt::Debug for PropertyDeclaration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.id().to_css(f)?;
+        self.id().to_css(&mut CssWriter::new(f))?;
         f.write_str(": ")?;
-        self.to_css(f)
+
+        // Because PropertyDeclaration::to_css requires CssStringWriter, we can't write
+        // it directly to f, and need to allocate an intermediate string. This is
+        // fine for debug-only code.
+        let mut s = CssString::new();
+        self.to_css(&mut s)?;
+        write!(f, "{}", s)
     }
 }
 
-impl ToCss for PropertyDeclaration {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
-    {
+impl PropertyDeclaration {
+    /// Like the method on ToCss, but without the type parameter to avoid
+    /// accidentally monomorphizing this large function multiple times for
+    /// different writers.
+    pub fn to_css(&self, dest: &mut CssStringWriter) -> fmt::Result {
         match *self {
             % for property in data.longhands:
-                PropertyDeclaration::${property.camel_case}(ref value) =>
-                    value.to_css(dest),
+            PropertyDeclaration::${property.camel_case}(ref value) => {
+                value.to_css(&mut CssWriter::new(dest))
+            }
             % endfor
-            PropertyDeclaration::CSSWideKeyword(_, keyword) => keyword.to_css(dest),
+            PropertyDeclaration::CSSWideKeyword(_, keyword) => {
+                keyword.to_css(&mut CssWriter::new(dest))
+            },
             PropertyDeclaration::WithVariables(_, ref with_variables) => {
                 // https://drafts.csswg.org/css-variables/#variables-in-shorthands
                 match with_variables.from_shorthand {
@@ -1494,7 +1509,9 @@ impl ToCss for PropertyDeclaration {
                 }
                 Ok(())
             },
-            PropertyDeclaration::Custom(_, ref value) => value.borrow().to_css(dest),
+            PropertyDeclaration::Custom(_, ref value) => {
+                value.borrow().to_css(&mut CssWriter::new(dest))
+            },
         }
     }
 }
@@ -2199,6 +2216,11 @@ pub struct ComputedValues {
 }
 
 impl ComputedValues {
+    /// Returns whether this style's display value is equal to contents.
+    pub fn is_display_contents(&self) -> bool {
+        self.get_box().clone_display().is_contents()
+    }
+
     /// Whether we're a visited style.
     pub fn is_style_if_visited(&self) -> bool {
         self.flags.contains(ComputedValueFlags::IS_STYLE_IF_VISITED)
@@ -2317,17 +2339,6 @@ impl ComputedValuesInner {
     /// Whether this style has a -moz-binding value. This is always false for
     /// Servo for obvious reasons.
     pub fn has_moz_binding(&self) -> bool { false }
-
-    /// Clone the visited style.  Used for inheriting parent styles in
-    /// StyleBuilder::for_derived_style.
-    pub fn clone_visited_style(&self) -> Option<Arc<ComputedValues>> {
-        self.visited_style.clone()
-    }
-
-    /// Returns whether this style's display value is equal to contents.
-    ///
-    /// Since this isn't supported in Servo, this is always false for Servo.
-    pub fn is_display_contents(&self) -> bool { false }
 
     #[inline]
     /// Returns whether the "content" property for the given style is completely
@@ -2711,8 +2722,6 @@ impl<'a> StyleBuilder<'a> {
         cascade_flags: CascadeFlags,
         rules: Option<StrongRuleNode>,
         custom_properties: Option<Arc<::custom_properties::CustomPropertiesMap>>,
-        writing_mode: WritingMode,
-        mut flags: ComputedValueFlags,
         visited_style: Option<Arc<ComputedValues>>,
     ) -> Self {
         debug_assert_eq!(parent_style.is_some(), parent_style_ignoring_first_line.is_some());
@@ -2734,6 +2743,7 @@ impl<'a> StyleBuilder<'a> {
             reset_style
         };
 
+        let mut flags = inherited_style.flags.inherited();
         if cascade_flags.contains(CascadeFlags::VISITED_DEPENDENT_ONLY) {
             flags.insert(ComputedValueFlags::IS_STYLE_IF_VISITED);
         }
@@ -2748,7 +2758,7 @@ impl<'a> StyleBuilder<'a> {
             rules,
             modified_reset: false,
             custom_properties,
-            writing_mode,
+            writing_mode: inherited_style.writing_mode,
             flags,
             visited_style,
             % for style_struct in data.active_style_structs():
@@ -2766,13 +2776,16 @@ impl<'a> StyleBuilder<'a> {
         self.flags.contains(ComputedValueFlags::IS_STYLE_IF_VISITED)
     }
 
-    /// Creates a StyleBuilder holding only references to the structs of `s`, in
-    /// order to create a derived style.
-    pub fn for_derived_style(
+    /// NOTE(emilio): This is done so we can compute relative units with respect
+    /// to the parent style, but all the early properties / writing-mode / etc
+    /// are already set to the right ones on the kid.
+    ///
+    /// Do _not_ actually call this to construct a style, this should mostly be
+    /// used for animations.
+    pub fn for_animation(
         device: &'a Device,
         style_to_derive_from: &'a ComputedValues,
         parent_style: Option<<&'a ComputedValues>,
-        pseudo: Option<<&'a PseudoElement>,
     ) -> Self {
         let reset_style = device.default_computed_values();
         let inherited_style = parent_style.unwrap_or(reset_style);
@@ -2786,13 +2799,13 @@ impl<'a> StyleBuilder<'a> {
             // None of our callers pass in ::first-line parent styles.
             inherited_style_ignoring_first_line: inherited_style,
             reset_style,
-            pseudo,
+            pseudo: None,
             modified_reset: false,
-            rules: None, // FIXME(emilio): Dubious...
+            rules: None,
             custom_properties: style_to_derive_from.custom_properties().cloned(),
             writing_mode: style_to_derive_from.writing_mode,
             flags: style_to_derive_from.flags,
-            visited_style: style_to_derive_from.clone_visited_style(),
+            visited_style: None,
             % for style_struct in data.active_style_structs():
             ${style_struct.ident}: StyleStructRef::Borrowed(
                 style_to_derive_from.${style_struct.name_lower}_arc()
@@ -2895,7 +2908,7 @@ impl<'a> StyleBuilder<'a> {
     /// computed values that need to be provided as well.
     pub fn for_inheritance(
         device: &'a Device,
-        parent: &'a ComputedValues,
+        parent: Option<<&'a ComputedValues>,
         pseudo: Option<<&'a PseudoElement>,
     ) -> Self {
         // Rebuild the visited style from the parent, ensuring that it will also
@@ -2903,26 +2916,23 @@ impl<'a> StyleBuilder<'a> {
         // produced by this builder.  This assumes that the caller doesn't need
         // to adjust or process visited style, so we can just build visited
         // style here for simplicity.
-        let visited_style = parent.visited_style().map(|style| {
-            Self::for_inheritance(
-                device,
-                style,
-                pseudo,
-            ).build()
+        let visited_style = parent.and_then(|parent| {
+            parent.visited_style().map(|style| {
+                Self::for_inheritance(
+                    device,
+                    Some(style),
+                    pseudo,
+                ).build()
+            })
         });
-        // FIXME(emilio): This Some(parent) here is inconsistent with what we
-        // usually do if `parent` is the default computed values, but that's
-        // fine, and we want to eventually get rid of it.
         Self::new(
             device,
-            Some(parent),
-            Some(parent),
+            parent,
+            parent,
             pseudo,
             CascadeFlags::empty(),
             /* rules = */ None,
-            parent.custom_properties().cloned(),
-            parent.writing_mode,
-            parent.flags.inherited(),
+            parent.and_then(|p| p.custom_properties().cloned()),
             visited_style,
         )
     }
@@ -3055,9 +3065,10 @@ impl<'a> StyleBuilder<'a> {
         &self.inherited_style.writing_mode
     }
 
-    /// Inherited style flags.
-    pub fn inherited_flags(&self) -> &ComputedValueFlags {
-        &self.inherited_style.flags
+    /// The computed value flags of our parent.
+    #[inline]
+    pub fn get_parent_flags(&self) -> ComputedValueFlags {
+        self.inherited_style.flags
     }
 
     /// And access to inherited style structs.
@@ -3141,30 +3152,8 @@ bitflags! {
         /// present, non-inherited styles are reset to their initial values.
         const INHERIT_ALL = 1;
 
-        /// Whether to skip any display style fixup for root element, flex/grid
-        /// item, and ruby descendants.
-        const SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP = 1 << 1;
-
         /// Whether to only cascade properties that are visited dependent.
-        const VISITED_DEPENDENT_ONLY = 1 << 2;
-
-        /// Whether the given element we're styling is the document element,
-        /// that is, matches :root.
-        ///
-        /// Not set for native anonymous content since some NAC form their own
-        /// root, but share the device.
-        ///
-        /// This affects some style adjustments, like blockification, and means
-        /// that it may affect global state, like the Device's root font-size.
-        const IS_ROOT_ELEMENT = 1 << 3;
-
-        /// Whether we're computing the style of a link, either visited or
-        /// unvisited.
-        const IS_LINK = 1 << 4;
-
-        /// Whether we're computing the style of a link element that happens to
-        /// be visited.
-        const IS_VISITED_LINK = 1 << 5;
+        const VISITED_DEPENDENT_ONLY = 1 << 1;
     }
 }
 
@@ -3182,7 +3171,7 @@ bitflags! {
 /// Returns the computed values.
 ///   * `flags`: Various flags.
 ///
-pub fn cascade(
+pub fn cascade<E>(
     device: &Device,
     pseudo: Option<<&PseudoElement>,
     rule_node: &StrongRuleNode,
@@ -3196,7 +3185,11 @@ pub fn cascade(
     quirks_mode: QuirksMode,
     rule_cache: Option<<&RuleCache>,
     rule_cache_conditions: &mut RuleCacheConditions,
-) -> Arc<ComputedValues> {
+    element: Option<E>,
+) -> Arc<ComputedValues>
+where
+    E: TElement,
+{
     debug_assert_eq!(parent_style.is_some(), parent_style_ignoring_first_line.is_some());
     let empty = SmallBitVec::new();
 
@@ -3255,12 +3248,13 @@ pub fn cascade(
         quirks_mode,
         rule_cache,
         rule_cache_conditions,
+        element,
     )
 }
 
 /// NOTE: This function expects the declaration with more priority to appear
 /// first.
-pub fn apply_declarations<'a, F, I>(
+pub fn apply_declarations<'a, E, F, I>(
     device: &Device,
     pseudo: Option<<&PseudoElement>,
     rules: &StrongRuleNode,
@@ -3275,8 +3269,10 @@ pub fn apply_declarations<'a, F, I>(
     quirks_mode: QuirksMode,
     rule_cache: Option<<&RuleCache>,
     rule_cache_conditions: &mut RuleCacheConditions,
+    element: Option<E>,
 ) -> Arc<ComputedValues>
 where
+    E: TElement,
     F: Fn() -> I,
     I: Iterator<Item = (&'a PropertyDeclaration, CascadeLevel)>,
 {
@@ -3312,7 +3308,7 @@ where
     };
 
     let mut context = computed::Context {
-        is_root_element: flags.contains(CascadeFlags::IS_ROOT_ELEMENT),
+        is_root_element: pseudo.is_none() && element.map_or(false, |e| e.is_root()),
         // We'd really like to own the rules here to avoid refcount traffic, but
         // animation's usage of `apply_declarations` make this tricky. See bug
         // 1375525.
@@ -3324,8 +3320,6 @@ where
             flags,
             Some(rules.clone()),
             custom_properties,
-            WritingMode::empty(),
-            ComputedValueFlags::empty(),
             visited_style,
         ),
         cached_system_font: None,
@@ -3596,8 +3590,11 @@ where
 
     builder.clear_modified_reset();
 
-    StyleAdjuster::new(&mut builder)
-        .adjust(layout_parent_style, flags);
+    StyleAdjuster::new(&mut builder).adjust(
+        layout_parent_style,
+        element,
+        flags,
+    );
 
     if builder.modified_reset() || !apply_reset {
         // If we adjusted any reset structs, we can't cache this ComputedValues.

@@ -115,6 +115,7 @@ public:
 
   mozilla::ipc::IPCResult RecvClearCachedResources() override;
   mozilla::ipc::IPCResult RecvForceComposite() override;
+  mozilla::ipc::IPCResult RecvCapture() override;
 
   mozilla::ipc::IPCResult RecvSetConfirmedTargetAPZC(const uint64_t& aBlockId,
                                                      nsTArray<ScrollableLayerGuid>&& aTargets) override;
@@ -171,7 +172,8 @@ public:
   void UpdateAPZ(bool aUpdateHitTestingTree);
   const WebRenderScrollData& GetScrollData() const;
 
-  void FlushRendering(bool aIsSync);
+  void FlushRendering();
+  void FlushRenderingAsync();
 
   /**
    * Schedule generating WebRender frame definitely at next composite timing.
@@ -198,9 +200,9 @@ private:
   bool UpdateResources(const nsTArray<OpUpdateResource>& aResourceUpdates,
                        const nsTArray<RefCountedShmem>& aSmallShmems,
                        const nsTArray<ipc::Shmem>& aLargeShmems,
-                       wr::ResourceUpdateQueue& aUpdates);
+                       wr::TransactionBuilder& aUpdates);
   bool AddExternalImage(wr::ExternalImageId aExtId, wr::ImageKey aKey,
-                        wr::ResourceUpdateQueue& aResources);
+                        wr::TransactionBuilder& aResources);
 
   uint64_t GetLayersId() const;
   void ProcessWebRenderParentCommands(const InfallibleTArray<WebRenderParentCommand>& aCommands);

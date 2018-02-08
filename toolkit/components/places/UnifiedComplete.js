@@ -309,8 +309,8 @@ const SQL_BOOKMARKED_TYPED_URL_QUERY = urlQuery("AND bookmarked AND h.typed = 1"
 
 // Getters
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 Cu.importGlobalProperties(["fetch"]);
 
@@ -337,14 +337,6 @@ function setTimeout(callback, ms) {
   let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
   timer.initWithCallback(callback, ms, timer.TYPE_ONE_SHOT);
   return timer;
-}
-
-function convertBucketsCharPrefToArray(str) {
-  return str.split(",")
-            .map(v => {
-              let bucket = v.split(":");
-              return [ bucket[0].trim().toLowerCase(), Number(bucket[1]) ];
-            });
 }
 
 /**
@@ -488,9 +480,9 @@ XPCOMUtils.defineLazyGetter(this, "Prefs", () => {
         // Convert from pref char format to an array and add the default buckets.
         let val = readPref(pref);
         try {
-          val = convertBucketsCharPrefToArray(val);
+          val = PlacesUtils.convertMatchBucketsStringToArray(val);
         } catch (ex) {
-          val = convertBucketsCharPrefToArray(PREF_URLBAR_DEFAULTS.get(pref));
+          val = PlacesUtils.convertMatchBucketsStringToArray(PREF_URLBAR_DEFAULTS.get(pref));
         }
         return [ ...DEFAULT_BUCKETS_BEFORE,
                 ...val,
@@ -502,7 +494,7 @@ XPCOMUtils.defineLazyGetter(this, "Prefs", () => {
         if (val) {
           // Convert from pref char format to an array and add the default buckets.
           try {
-            val = convertBucketsCharPrefToArray(val);
+            val = PlacesUtils.convertMatchBucketsStringToArray(val);
             return [ ...DEFAULT_BUCKETS_BEFORE,
                     ...val,
                     ...DEFAULT_BUCKETS_AFTER ];

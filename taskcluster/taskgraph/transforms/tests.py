@@ -34,6 +34,7 @@ from voluptuous import (
     Any,
     Optional,
     Required,
+    Exclusive,
 )
 
 import copy
@@ -379,11 +380,24 @@ test_description_schema = Schema({
     Optional('product'): basestring,
 
     # conditional files to determine when these tests should be run
-    Optional('when'): Any({
+    Exclusive(Optional('when'), 'optimization'): Any({
         Optional('files-changed'): [basestring],
     }),
 
+    # The SCHEDULES component for this task; this defaults to the suite
+    # (not including the flavor) but can be overridden here.
+    Exclusive(Optional('schedules-component'), 'optimization'): basestring,
+
     Optional('worker-type'): optionally_keyed_by(
+        'test-platform',
+        Any(basestring, None),
+    ),
+
+    # The target name, specifying the build artifact to be tested.
+    # If None or not specified, a transform sets the target based on OS:
+    # target.dmg (Mac), target.apk (Android), target.tar.bz2 (Linux),
+    # or target.zip (Windows).
+    Optional('target'): optionally_keyed_by(
         'test-platform',
         Any(basestring, None),
     ),
@@ -494,17 +508,19 @@ def setup_talos(config, tests):
 def set_target(config, tests):
     for test in tests:
         build_platform = test['build-platform']
-        if build_platform.startswith('macosx'):
-            target = 'target.dmg'
-        elif build_platform.startswith('android'):
-            if 'geckoview' in test['test-name']:
-                target = 'geckoview_example.apk'
-            else:
+        target = None
+        if 'target' in test:
+            resolve_keyed_by(test, 'target', item_name=test['test-name'])
+            target = test['target']
+        if not target:
+            if build_platform.startswith('macosx'):
+                target = 'target.dmg'
+            elif build_platform.startswith('android'):
                 target = 'target.apk'
-        elif build_platform.startswith('win'):
-            target = 'target.zip'
-        else:
-            target = 'target.tar.bz2'
+            elif build_platform.startswith('win'):
+                target = 'target.zip'
+            else:
+                target = 'target.tar.bz2'
         test['mozharness']['build-artifact-name'] = 'public/build/' + target
 
         yield test
@@ -921,10 +937,7 @@ def set_worker_type(config, tests):
                 test['worker-type'] = win_worker_type_platform[test['virtualization']]
         elif test_platform.startswith('linux') or test_platform.startswith('android'):
             if test.get('suite', '') == 'talos' and test['build-platform'] != 'linux64-ccov/opt':
-                if try_options.get('taskcluster_worker'):
-                    test['worker-type'] = 'releng-hardware/gecko-t-linux-talos'
-                else:
-                    test['worker-type'] = 'buildbot-bridge/buildbot-bridge'
+                test['worker-type'] = 'releng-hardware/gecko-t-linux-talos'
             else:
                 test['worker-type'] = LINUX_WORKER_TYPES[test['instance-size']]
         else:
@@ -1008,7 +1021,7 @@ def make_job_description(config, tests):
             'platform': test.get('treeherder-machine-platform', test['build-platform']),
         }
 
-        suite = attributes['unittest_suite']
+        suite = test.get('schedules-component', attributes['unittest_suite'])
         if suite in INCLUSIVE_COMPONENTS:
             # if this is an "inclusive" test, then all files which might
             # cause it to run are annotated with SCHEDULES in moz.build,

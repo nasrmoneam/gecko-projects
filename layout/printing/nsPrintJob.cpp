@@ -106,7 +106,6 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsILayoutHistoryState.h"
 #include "nsFrameManager.h"
 #include "mozilla/ReflowInput.h"
-#include "nsIContentViewerContainer.h"
 #include "nsIContentViewer.h"
 #include "nsIDocumentViewerPrint.h"
 
@@ -301,8 +300,7 @@ GetDocumentTitleAndURL(nsIDocument* aDoc,
   aTitle.Truncate();
   aURLStr.Truncate();
 
-  nsCOMPtr<nsIDOMDocument> doc = do_QueryInterface(aDoc);
-  doc->GetTitle(aTitle);
+  aDoc->GetTitle(aTitle);
 
   nsIURI* url = aDoc->GetDocumentURI();
   if (!url) return;
@@ -458,9 +456,7 @@ MapContentToWebShells(const UniquePtr<nsPrintObject>& aRootPO,
   aPO->mDocShell->GetContentViewer(getter_AddRefs(viewer));
   if (!viewer) return;
 
-  nsCOMPtr<nsIDOMDocument> domDoc;
-  viewer->GetDOMDocument(getter_AddRefs(domDoc));
-  nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
+  nsCOMPtr<nsIDocument> doc = viewer->GetDocument();
   if (!doc) return;
 
   Element* rootElement = doc->GetRootElement();
@@ -2530,7 +2526,7 @@ GetCorrespondingNodeInDocument(const nsINode* aNode, nsIDocument* aDoc)
   nsTArray<int32_t> indexArray;
   const nsINode* child = aNode;
   while (const nsINode* parent = child->GetParentNode()) {
-    int32_t index = parent->IndexOf(child);
+    int32_t index = parent->ComputeIndexOf(child);
     MOZ_ASSERT(index >= 0);
     indexArray.AppendElement(index);
     child = parent;

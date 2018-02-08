@@ -6,7 +6,6 @@
 //! between layout and style.
 
 use attr::{AttrSelectorOperation, NamespaceConstraint, CaseSensitivity};
-use context::VisitedHandlingMode;
 use matching::{ElementSelectorFlags, MatchingContext};
 use parser::SelectorImpl;
 use servo_arc::NonZeroPtrMut;
@@ -69,7 +68,6 @@ pub trait Element: Sized + Clone + Debug {
         &self,
         pc: &<Self::Impl as SelectorImpl>::NonTSPseudoClass,
         context: &mut MatchingContext<Self::Impl>,
-        visited_handling: VisitedHandlingMode,
         flags_setter: &mut F,
     ) -> bool
     where
@@ -83,6 +81,9 @@ pub trait Element: Sized + Clone + Debug {
 
     /// Whether this element is a `link`.
     fn is_link(&self) -> bool;
+
+    /// Returns whether the element is an HTML <slot> element.
+    fn is_html_slot_element(&self) -> bool;
 
     /// Returns the assigned <slot> element this element is assigned to.
     ///

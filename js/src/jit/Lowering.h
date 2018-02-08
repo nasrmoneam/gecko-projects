@@ -120,6 +120,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitFunctionDispatch(MFunctionDispatch* ins) override;
     void visitObjectGroupDispatch(MObjectGroupDispatch* ins) override;
     void visitCompare(MCompare* comp) override;
+    void visitSameValue(MSameValue* comp) override;
     void visitTypeOf(MTypeOf* ins) override;
     void visitToAsync(MToAsync* ins) override;
     void visitToAsyncGen(MToAsyncGen* ins) override;
@@ -170,7 +171,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitOsrArgumentsObject(MOsrArgumentsObject* object) override;
     void visitToDouble(MToDouble* convert) override;
     void visitToFloat32(MToFloat32* convert) override;
-    void visitToInt32(MToInt32* convert) override;
+    void visitToNumberInt32(MToNumberInt32* convert) override;
     void visitTruncateToInt32(MTruncateToInt32* truncate) override;
     void visitWasmTruncateToInt32(MWasmTruncateToInt32* truncate) override;
     void visitWrapInt64ToInt32(MWrapInt64ToInt32* ins) override;
@@ -229,6 +230,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitNot(MNot* ins) override;
     void visitBoundsCheck(MBoundsCheck* ins) override;
     void visitBoundsCheckLower(MBoundsCheckLower* ins) override;
+    void visitSpectreMaskIndex(MSpectreMaskIndex* ins) override;
     void visitLoadElement(MLoadElement* ins) override;
     void visitLoadElementHole(MLoadElementHole* ins) override;
     void visitLoadUnboxedObjectOrNull(MLoadUnboxedObjectOrNull* ins) override;
@@ -293,7 +295,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitInArray(MInArray* ins) override;
     void visitHasOwnCache(MHasOwnCache* ins) override;
     void visitInstanceOf(MInstanceOf* ins) override;
-    void visitCallInstanceOf(MCallInstanceOf* ins) override;
+    void visitInstanceOfCache(MInstanceOfCache* ins) override;
     void visitIsCallable(MIsCallable* ins) override;
     void visitIsConstructor(MIsConstructor* ins) override;
     void visitIsArray(MIsArray* ins) override;

@@ -14,7 +14,6 @@ config = {
     "buildbot_json_path": "buildprops.json",
     "exes": {
         'python': sys.executable,
-        'virtualenv': [sys.executable, 'c:/mozilla-build/buildbotve/virtualenv.py'],
         'hg': 'c:/mozilla-build/hg/hg',
         'mozinstall': ['%s/build/venv/scripts/python' % os.getcwd(),
                        '%s/build/venv/scripts/mozinstall-script.py' % os.getcwd()],
@@ -53,6 +52,8 @@ config = {
         "modules/*",
         "mozbase/*",
         "tools/*",
+        "mozpack/*",
+        "mozbuild/*",
     ],
     "specific_tests_zip_dirs": {
         "mochitest": ["mochitest/*"],

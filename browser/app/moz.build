@@ -43,9 +43,6 @@ SOURCES += [
 # Neither channel-prefs.js nor firefox.exe want to end up in dist/bin/browser.
 DIST_SUBDIR = ""
 
-# channel-prefs.js is handled separate from other prefs due to bug 756325
-JS_PREFERENCE_PP_FILES += ['profile/channel-prefs.js']
-
 LOCAL_INCLUDES += [
     '!/build',
     '/toolkit/xre',
@@ -86,6 +83,11 @@ if CONFIG['MOZ_SANDBOX'] and CONFIG['OS_ARCH'] == 'WINNT':
         'winmm.dll',
         'user32.dll',
     ]
+
+    if CONFIG['CC_TYPE'] == "msvc":
+        CFLAGS += ['-guard:cf']
+        CXXFLAGS += ['-guard:cf']
+        LDFLAGS += ['-guard:cf']
 
 # Control the default heap size.
 # This is the heap returned by GetProcessHeap().

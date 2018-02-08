@@ -1554,8 +1554,8 @@ IsSpecialProtocol(const nsACString &input)
            protocol.LowerCaseEqualsLiteral("gopher");
 }
 
-NS_IMETHODIMP
-nsStandardURL::SetSpec(const nsACString &input)
+nsresult
+nsStandardURL::SetSpecInternal(const nsACString &input)
 {
     return SetSpecWithEncoding(input, nullptr);
 }
@@ -2209,7 +2209,7 @@ nsStandardURL::SetPathQueryRef(const nsACString &input)
             spec.Append('/');
         spec.Append(path);
 
-        return SetSpec(spec);
+        return SetSpecInternal(spec);
     }
     else if (mPath.mLen >= 1) {
         mSpec.Cut(mPath.mPos + 1, mPath.mLen - 1);
@@ -2226,7 +2226,13 @@ nsStandardURL::SetPathQueryRef(const nsACString &input)
     return NS_OK;
 }
 
-NS_IMPL_ISUPPORTS(nsStandardURL::Mutator, nsIURISetters, nsIURIMutator)
+// When updating this also update SubstitutingURL::Mutator
+NS_IMPL_ISUPPORTS(nsStandardURL::Mutator,
+                  nsIURISetters,
+                  nsIURIMutator,
+                  nsIStandardURLMutator,
+                  nsIURLMutator,
+                  nsIFileURLMutator)
 
 NS_IMETHODIMP
 nsStandardURL::Mutate(nsIURIMutator** aMutator)
@@ -2893,7 +2899,7 @@ nsStandardURL::SetFilePath(const nsACString &input)
                 spec.Append(mSpec.get() + end, mSpec.Length() - end);
         }
 
-        return SetSpec(spec);
+        return SetSpecInternal(spec);
     }
     else if (mPath.mLen > 1) {
         mSpec.Cut(mPath.mPos + 1, mFilepath.mLen - 1);
@@ -3064,22 +3070,15 @@ nsStandardURL::SetRef(const nsACString &input)
     return NS_OK;
 }
 
-NS_IMETHODIMP
-nsStandardURL::SetDirectory(const nsACString &input)
-{
-    MOZ_ASSERT_UNREACHABLE("SetDirectory");
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-nsStandardURL::SetFileName(const nsACString &input)
+nsresult
+nsStandardURL::SetFileNameInternal(const nsACString &input)
 {
     ENSURE_MUTABLE();
 
     const nsPromiseFlatCString &flat = PromiseFlatCString(input);
     const char *filename = flat.get();
 
-    LOG(("nsStandardURL::SetFileName [filename=%s]\n", filename));
+    LOG(("nsStandardURL::SetFileNameInternal [filename=%s]\n", filename));
 
     if (mPath.mLen < 0)
         return SetPathQueryRef(flat);
@@ -3170,8 +3169,8 @@ nsStandardURL::SetFileName(const nsACString &input)
     return NS_OK;
 }
 
-NS_IMETHODIMP
-nsStandardURL::SetFileBaseName(const nsACString &input)
+nsresult
+nsStandardURL::SetFileBaseNameInternal(const nsACString &input)
 {
     nsAutoCString extension;
     nsresult rv = GetFileExtension(extension);
@@ -3184,11 +3183,11 @@ nsStandardURL::SetFileBaseName(const nsACString &input)
         newFileName.Append(extension);
     }
 
-    return SetFileName(newFileName);
+    return SetFileNameInternal(newFileName);
 }
 
-NS_IMETHODIMP
-nsStandardURL::SetFileExtension(const nsACString &input)
+nsresult
+nsStandardURL::SetFileExtensionInternal(const nsACString &input)
 {
     nsAutoCString newFileName;
     nsresult rv = GetFileBaseName(newFileName);
@@ -3199,7 +3198,7 @@ nsStandardURL::SetFileExtension(const nsACString &input)
         newFileName.Append(input);
     }
 
-    return SetFileName(newFileName);
+    return SetFileNameInternal(newFileName);
 }
 
 //----------------------------------------------------------------------------
@@ -3240,10 +3239,8 @@ nsStandardURL::GetFile(nsIFile **result)
         return rv;
 
     if (LOG_ENABLED()) {
-        nsAutoCString path;
-        mFile->GetNativePath(path);
         LOG(("nsStandardURL::GetFile [this=%p spec=%s resulting_path=%s]\n",
-            this, mSpec.get(), path.get()));
+            this, mSpec.get(), mFile->HumanReadablePath().get()));
     }
 
     // clone the file, so the caller can modify it.
@@ -3294,7 +3291,7 @@ nsStandardURL::SetFile(nsIFile *file)
 // nsStandardURL::nsIStandardURL
 //----------------------------------------------------------------------------
 
-NS_IMETHODIMP
+nsresult
 nsStandardURL::Init(uint32_t urlType,
                     int32_t defaultPort,
                     const nsACString &spec,
@@ -3351,7 +3348,7 @@ nsStandardURL::Init(uint32_t urlType,
     return SetSpecWithEncoding(buf, encoding);
 }
 
-NS_IMETHODIMP
+nsresult
 nsStandardURL::SetDefaultPort(int32_t aNewDefaultPort)
 {
     ENSURE_MUTABLE();

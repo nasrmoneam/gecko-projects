@@ -8,6 +8,8 @@ Environments
 These environments are available by specifying a comment at the top of the file,
 e.g.
 
+.. code-block:: js
+
    /* eslint-env mozilla/chrome-worker */
 
 There are also built-in ESLint environments available as well:
@@ -53,6 +55,8 @@ purposes when the less problematic performance.now() can be used instead.
 The performance.now() function returns milliseconds since page load. To
 convert that to milliseconds since the epoch, use:
 
+.. code-block:: js
+
     performance.timing.navigationStart + performance.now()
 
 Often timing relative to the page load is adequate and that conversion may not
@@ -67,8 +71,8 @@ can be used instead.
 balanced-listeners
 ------------------
 
-Checks that for every occurence of 'addEventListener' or 'on' there is an
-occurence of 'removeEventListener' or 'off' with the same event name.
+Checks that for every occurrence of 'addEventListener' or 'on' there is an
+occurrence of 'removeEventListener' or 'off' with the same event name.
 
 import-browser-window-globals
 -----------------------------
@@ -166,19 +170,21 @@ no-cpows-in-tests
 This rule checks if the file is a browser mochitest and, if so, checks for
 possible CPOW usage by checking for the following strings:
 
-- "gBrowser.contentWindow"
-- "gBrowser.contentDocument"
-- "gBrowser.selectedBrowser.contentWindow"
-- "browser.contentDocument"
-- "window.content"
-- "content"
-- "content."
+- ``gBrowser.contentWindow``
+- ``gBrowser.contentDocument``
+- ``gBrowser.selectedBrowser.contentWindow``
+- ``browser.contentDocument``
+- ``window.content``
+- ``content``
+- ``content.``
 
 Note: These are string matches so we will miss situations where the parent
-object is assigned to another variable e.g.::
+object is assigned to another variable e.g.:
 
-   var b = gBrowser;
-   b.content // Would not be detected as a CPOW.
+.. code-block:: js
+
+    var b = gBrowser;
+    b.content // Would not be detected as a CPOW.
 
 
 no-single-arg-cu-import
@@ -192,9 +198,11 @@ no-import-into-var-and-global
 -----------------------------
 
 Reject use of ``Cu.import`` (or ``Components.utils.import``) where it attempts to
-import into a var and into the global scope at the same time, e.g.
+import into a var and into the global scope at the same time, e.g.:
 
-``var foo = Cu.import("path.jsm", this);``
+.. code-block:: js
+
+    var foo = Cu.import("path.jsm", this);
 
 This is considered bad practice as it is confusing as to what is actually being
 imported.
@@ -241,10 +249,19 @@ this-top-level-scope
 Treats top-level assignments like ``this.mumble = value`` as declaring a global.
 
 Note: These are string matches so we will miss situations where the parent
-object is assigned to another variable e.g.::
+object is assigned to another variable e.g.:
+
+.. code-block:: js
 
    var b = gBrowser;
    b.content // Would not be detected as a CPOW.
+
+use-chromeutils-import
+----------------------
+
+Require use of ``ChromeUtils.import`` and ``ChromeUtils.defineModuleGetter``
+rather than ``Components.utils.import`` and
+``XPCOMUtils.defineLazyModuleGetter``.
 
 use-default-preference-values
 ---------------
@@ -256,6 +273,11 @@ use-ownerGlobal
 ---------------
 
 Require .ownerGlobal instead of .ownerDocument.defaultView.
+
+use-includes-instead-of-indexOf
+-------------------------------
+
+Use .includes instead of .indexOf to check if something is in an array or string.
 
 use-services
 ------------
@@ -284,7 +306,9 @@ Example
 | 2     | Error                 |
 +-------+-----------------------+
 
-Example configuration::
+Example configuration:
+
+.. code-block:: js
 
    "rules": {
      "mozilla/balanced-listeners": 2,
@@ -299,17 +323,19 @@ Tests
 The tests for eslint-plugin-mozilla are run via `mochajs`_ on top of node. Most
 of the tests use the `ESLint Rule Unit Test framework`_.
 
+.. _mochajs: https://mochajs.org/
+.. _ESLint Rule Unit Test Framework: http://eslint.org/docs/developer-guide/working-with-rules#rule-unit-tests
+
 Running Tests
 -------------
 
 The rules have some self tests, these can be run via:
 
-   cd tools/lint/eslint/eslint-plugin-mozilla
-   npm install
-   npm run test
+.. code-block:: shell
 
-.. _mochajs: https://mochajs.org/
-.. _ESLint Rule Unit Test Framework: http://eslint.org/docs/developer-guide/working-with-rules#rule-unit-tests
+   $ cd tools/lint/eslint/eslint-plugin-mozilla
+   $ npm install
+   $ npm run test
 
 Disabling tests
 ---------------

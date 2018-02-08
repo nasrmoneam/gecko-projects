@@ -33,8 +33,10 @@
 #include "nsXBLDocumentInfo.h"
 #include "mozilla/dom/XBLChildrenElement.h"
 
+#ifdef MOZ_OLD_STYLE
 #include "nsIStyleRuleProcessor.h"
 #include "nsRuleProcessorData.h"
+#endif
 #include "nsIWeakReference.h"
 
 #include "nsWrapperCacheInlines.h"
@@ -673,6 +675,7 @@ nsBindingManager::GetBindingImplementation(nsIContent* aContent, REFNSIID aIID,
   return NS_NOINTERFACE;
 }
 
+#ifdef MOZ_OLD_STYLE
 nsresult
 nsBindingManager::WalkRules(nsIStyleRuleProcessor::EnumFunc aFunc,
                             ElementDependentRuleProcessorData* aData,
@@ -713,6 +716,7 @@ nsBindingManager::WalkRules(nsIStyleRuleProcessor::EnumFunc aFunc,
 
   return NS_OK;
 }
+#endif
 
 bool
 nsBindingManager::EnumerateBoundContentBindings(
@@ -743,6 +747,7 @@ nsBindingManager::EnumerateBoundContentBindings(
   return true;
 }
 
+#ifdef MOZ_OLD_STYLE
 void
 nsBindingManager::WalkAllRules(nsIStyleRuleProcessor::EnumFunc aFunc,
                                ElementDependentRuleProcessorData* aData)
@@ -756,6 +761,7 @@ nsBindingManager::WalkAllRules(nsIStyleRuleProcessor::EnumFunc aFunc,
     return true;
   });
 }
+#endif
 
 bool
 nsBindingManager::MediumFeaturesChanged(nsPresContext* aPresContext)
@@ -786,12 +792,16 @@ nsBindingManager::MediumFeaturesChanged(nsPresContext* aPresContext)
         rulesChanged = rulesChanged || styleSetChanged;
       }
     } else {
+#ifdef MOZ_OLD_STYLE
       nsIStyleRuleProcessor* ruleProcessor =
         aBinding->PrototypeBinding()->GetRuleProcessor();
       if (ruleProcessor) {
         bool thisChanged = ruleProcessor->MediumFeaturesChanged(presContext);
         rulesChanged = rulesChanged || thisChanged;
       }
+#else
+      MOZ_CRASH("old style system disabled");
+#endif
     }
     return true;
   });
@@ -1143,21 +1153,4 @@ nsBindingManager::FindNestedSingleInsertionPoint(nsIContent* aContainer,
   }
 
   return parent;
-}
-
-bool
-nsBindingManager::AnyBindingHasDocumentStateDependency(EventStates aStateMask)
-{
-  MOZ_ASSERT(mDocument->IsStyledByServo());
-
-  bool result = false;
-  EnumerateBoundContentBindings([&](nsXBLBinding* aBinding) {
-    ServoStyleSet* styleSet = aBinding->PrototypeBinding()->GetServoStyleSet();
-    if (styleSet && styleSet->HasDocumentStateDependency(aStateMask)) {
-      result = true;
-      return false;
-    }
-    return true;
-  });
-  return result;
 }

@@ -66,6 +66,26 @@ static const char contentSandboxRules[] = R"(
     (deny default)
     (deny default (with no-log)))
   (debug deny)
+  ; These are not included in (deny default)
+  (deny process-info*)
+  ; This isn't available in some older macOS releases.
+  (if (defined? 'nvram*)
+    (deny nvram*))
+  ; The next two properties both require macOS 10.10+
+  (if (defined? 'iokit-get-properties)
+    (deny iokit-get-properties))
+  (if (defined? 'file-map-executable)
+    (deny file-map-executable))
+
+  (if (defined? 'file-map-executable)
+    (allow file-map-executable file-read*
+      (subpath "/System")
+      (subpath "/usr/lib")
+      (subpath appdir-path))
+    (allow file-read*
+        (subpath "/System")
+        (subpath "/usr/lib")
+        (subpath appdir-path)))
 
   ; Allow read access to standard system paths.
   (allow file-read*
@@ -73,8 +93,6 @@ static const char contentSandboxRules[] = R"(
       (require-any
         (subpath "/Library/Filesystems/NetFSPlugins")
         (subpath "/Library/GPUBundles")
-        (subpath "/System")
-        (subpath "/usr/lib")
         (subpath "/usr/share"))))
 
   ; Top-level directory metadata access (bug 1404298)
@@ -99,6 +117,9 @@ static const char contentSandboxRules[] = R"(
     file-write-data
     file-ioctl
     (literal "/dev/dtracehelper"))
+
+  ; Needed for things like getpriority()/setpriority()
+  (allow process-info-pidinfo process-info-setcontrol (target self))
 
   ; macOS 10.9 does not support the |sysctl-name| predicate, so unfortunately
   ; we need to allow all sysctl-reads there.
@@ -162,19 +183,11 @@ static const char contentSandboxRules[] = R"(
 
   (allow ipc-posix-shm-read-data ipc-posix-shm-write-data
     (ipc-posix-name-regex #"^CFPBS:"))
-  (allow ipc-posix-shm-read* ipc-posix-shm-write-data
-    (ipc-posix-name-regex #"^AudioIO"))
 
   (allow signal (target self))
 
-  (allow mach-lookup
-      (global-name "com.apple.audio.coreaudiod")
-      (global-name "com.apple.audio.audiohald"))
-
   (if (>= macosMinorVersion 13)
     (allow mach-lookup
-      ; bug 1376163
-      (global-name "com.apple.audio.AudioComponentRegistrar")
       ; bug 1392988
       (xpc-service-name "com.apple.coremedia.videodecoder")
       (xpc-service-name "com.apple.coremedia.videoencoder")))
@@ -184,8 +197,21 @@ static const char contentSandboxRules[] = R"(
      (allow mach-lookup (global-name "com.apple.xpcd")))
 
   (allow iokit-open
-     (iokit-user-client-class "IOHIDParamUserClient")
-     (iokit-user-client-class "IOAudioEngineUserClient"))
+     (iokit-user-client-class "IOHIDParamUserClient"))
+
+  ; Only supported on macOS 10.10+
+  (if (defined? 'iokit-get-properties)
+    (allow iokit-get-properties
+      (iokit-property "board-id")
+      (iokit-property "IODVDBundleName")
+      (iokit-property "IOGLBundleName")
+      (iokit-property "IOGVACodec")
+      (iokit-property "IOGVAHEVCDecode")
+      (iokit-property "IOGVAHEVCEncode")
+      (iokit-property "IOPCITunnelled")
+      (iokit-property "IOVARendererID")
+      (iokit-property "MetalPluginName")
+      (iokit-property "MetalPluginClassName")))
 
 ; depending on systems, the 1st, 2nd or both rules are necessary
   (allow user-preference-read (preference-domain "com.apple.HIToolbox"))
@@ -195,37 +221,38 @@ static const char contentSandboxRules[] = R"(
   (allow file-read-data (literal "/Library/Preferences/.GlobalPreferences.plist"))
 
   (allow file-read*
-      (subpath "/Library/Fonts")
-      (subpath "/Library/Audio/Plug-Ins")
       (subpath "/Library/Spelling")
       (literal "/")
       (literal "/private/tmp")
       (literal "/private/var/tmp")
-
       (home-literal "/.CFUserTextEncoding")
       (home-literal "/Library/Preferences/com.apple.DownloadAssessment.plist")
       (home-subpath "/Library/Colors")
-      (home-subpath "/Library/Fonts")
-      (home-subpath "/Library/FontCollections")
       (home-subpath "/Library/Keyboard Layouts")
       (home-subpath "/Library/Input Methods")
       (home-subpath "/Library/Spelling")
-      (home-subpath "/Library/Application Support/Adobe/CoreSync/plugins/livetype")
-      (home-subpath "/Library/Application Support/FontAgent")
-
-      (subpath appdir-path)
-
       (literal appPath)
       (literal appBinaryPath))
 
-  (when testingReadPath1
-    (allow file-read* (subpath testingReadPath1)))
-  (when testingReadPath2
-    (allow file-read* (subpath testingReadPath2)))
-  (when testingReadPath3
-    (allow file-read* (subpath testingReadPath3)))
-  (when testingReadPath4
-    (allow file-read* (subpath testingReadPath4)))
+  (if (defined? 'file-map-executable)
+    (begin
+      (when testingReadPath1
+        (allow file-read* file-map-executable (subpath testingReadPath1)))
+      (when testingReadPath2
+        (allow file-read* file-map-executable (subpath testingReadPath2)))
+      (when testingReadPath3
+        (allow file-read* file-map-executable (subpath testingReadPath3)))
+      (when testingReadPath4
+        (allow file-read* file-map-executable (subpath testingReadPath4))))
+    (begin
+      (when testingReadPath1
+        (allow file-read* (subpath testingReadPath1)))
+      (when testingReadPath2
+        (allow file-read* (subpath testingReadPath2)))
+      (when testingReadPath3
+        (allow file-read* (subpath testingReadPath3)))
+      (when testingReadPath4
+        (allow file-read* (subpath testingReadPath4)))))
 
   (allow file-read-metadata (home-subpath "/Library"))
 
@@ -243,10 +270,6 @@ static const char contentSandboxRules[] = R"(
           (vnode-type REGULAR-FILE)))))
 
   (allow-shared-list "org.mozilla.plugincontainer")
-
-; the following rule should be removed when microphone access
-; is brokered through the content process
-  (allow device-microphone)
 
 ; Per-user and system-wide Extensions dir
   (allow file-read*
@@ -318,28 +341,21 @@ static const char contentSandboxRules[] = R"(
       (subpath appTempDir)
       (vnode-type REGULAR-FILE)))
 
-  ; bug 1382260
-  ; We may need to load fonts from outside of the standard
-  ; font directories whitelisted above. This is typically caused
-  ; by a font manager. For now, whitelist any file with a
-  ; font extension. Limit this to the common font types:
-  ; files ending in .otf, .ttf, .ttc, .otc, and .dfont.
+  ; Fonts
   (allow file-read*
-    (regex #"\.[oO][tT][fF]$"           ; otf
-           #"\.[tT][tT][fF]$"           ; ttf
-           #"\.[tT][tT][cC]$"           ; ttc
-           #"\.[oO][tT][cC]$"           ; otc
-           #"\.[dD][fF][oO][nN][tT]$")) ; dfont
-
-  ; bug 1404919
-  ; Read access (recursively) within directories ending in .fontvault
-  (allow file-read* (regex #"\.fontvault/"))
-
-  ; bug 1429133
-  ; Read access to the default FontExplorer font directory
-  (allow file-read* (home-subpath "/FontExplorer X/Font Library"))
+    (subpath "/Library/Fonts")
+    (subpath "/Library/Application Support/Apple/Fonts")
+    (home-subpath "/Library/Fonts")
+    ; Allow read access to paths allowed via sandbox extensions.
+    ; This is needed for fonts in non-standard locations normally
+    ; due to third party font managers. The extensions are
+    ; automatically issued by the font server in response to font
+    ; API calls.
+    (extension "com.apple.app-sandbox.read"))
 )";
 
+// These are additional rules that are added to the content process rules for
+// file content processes.
 static const char fileContentProcessAddend[] = R"(
   ; This process has blanket file read privileges
   (allow file-read*)
@@ -349,6 +365,28 @@ static const char fileContentProcessAddend[] = R"(
   (allow mach-lookup (global-name "com.apple.iconservices"))
 )";
 
+// These are additional rules that are added to the content process rules when
+// audio remoting is not enabled. (Once audio remoting is always used these
+// will be deleted.)
+static const char contentProcessAudioAddend[] = R"(
+  (allow ipc-posix-shm-read* ipc-posix-shm-write-data
+    (ipc-posix-name-regex #"^AudioIO"))
+
+  (allow mach-lookup
+    (global-name "com.apple.audio.coreaudiod")
+    (global-name "com.apple.audio.audiohald"))
+
+  (if (>= macosMinorVersion 13)
+    (allow mach-lookup
+      ; bug 1376163
+      (global-name "com.apple.audio.AudioComponentRegistrar")))
+
+  (allow iokit-open (iokit-user-client-class "IOAudioEngineUserClient"))
+
+  (allow file-read* (subpath "/Library/Audio/Plug-Ins"))
+
+  (allow device-microphone)
+)";
 
 }
 

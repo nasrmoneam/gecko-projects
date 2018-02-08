@@ -2,7 +2,7 @@
 
 /* eslint-disable mozilla/no-cpows-in-tests */
 
-Cu.import("resource://gre/modules/Services.jsm", this);
+ChromeUtils.import("resource://gre/modules/Services.jsm", this);
 
 const OPT_OUT_PREF = "app.shield.optoutstudies.enabled";
 const FHR_PREF = "datareporting.healthreport.uploadEnabled";
@@ -171,9 +171,11 @@ decorate_task(
     await BrowserTestUtils.waitForLocationChange(gBrowser);
 
     is(
-      browser.currentURI.spec,
+      gBrowser.currentURI.spec,
       "about:studies",
-      "Clicking the view studies link opens about:studies."
+      "Clicking the view studies link opens about:studies in a new tab."
     );
+
+    gBrowser.removeCurrentTab();
   }
 );

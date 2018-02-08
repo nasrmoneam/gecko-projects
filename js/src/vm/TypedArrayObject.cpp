@@ -451,8 +451,12 @@ class TypedArrayObjectTemplate : public TypedArrayObject
         // the time, though, that [[Prototype]] will not be interesting. If
         // it isn't, we can do some more TI optimizations.
         RootedObject checkProto(cx);
-        if (proto && !GetBuiltinPrototype(cx, JSCLASS_CACHED_PROTO_KEY(instanceClass()), &checkProto))
-            return nullptr;
+        if (proto) {
+            checkProto =
+                GlobalObject::getOrCreatePrototype(cx, JSCLASS_CACHED_PROTO_KEY(instanceClass()));
+            if (!checkProto)
+                return nullptr;
+        }
 
         AutoSetNewObjectMetadata metadata(cx);
         Rooted<TypedArrayObject*> obj(cx);
@@ -876,7 +880,9 @@ class TypedArrayObjectTemplate : public TypedArrayObject
         // this compartment.
         RootedObject protoRoot(cx, proto);
         if (!protoRoot) {
-            if (!GetBuiltinPrototype(cx, JSCLASS_CACHED_PROTO_KEY(instanceClass()), &protoRoot))
+            protoRoot =
+                GlobalObject::getOrCreatePrototype(cx, JSCLASS_CACHED_PROTO_KEY(instanceClass()));
+            if (!protoRoot)
                 return nullptr;
         }
 
@@ -1200,16 +1206,10 @@ TypedArrayObjectTemplate<T>::fromTypedArray(JSContext* cx, HandleObject other, b
     // Steps 8, 18-19.
     Rooted<ArrayBufferObject*> buffer(cx);
     if (ArrayTypeID() == srcType) {
-        // Step 18.a.
-        if (srcArray->hasDetachedBuffer()) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
-            return nullptr;
-        }
-
         // Step 15.
         uint32_t byteLength = srcArray->byteLength();
 
-        // Step 18.b.
+        // Step 18.a.
         // 24.1.1.4 CloneArrayBuffer(...), steps 1-3.
         if (!AllocateArrayBuffer(cx, bufferCtor, byteLength, 1, &buffer))
             return nullptr;

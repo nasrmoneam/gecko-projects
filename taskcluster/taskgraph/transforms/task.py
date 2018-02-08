@@ -449,6 +449,7 @@ task_description_schema = Schema({
             Optional('release_promotion'): bool,
             Optional('generate_bz2_blob'): bool,
             Optional('tuxedo_server_url'): optionally_keyed_by('project', basestring),
+            Optional('release_eta'): basestring,
             Extra: taskref_or_string,  # additional properties are allowed
         },
     }, {
@@ -582,6 +583,9 @@ task_description_schema = Schema({
         Required('google-play-track'): Any('production', 'beta', 'alpha', 'rollout', 'invalid'),
         Required('commit'): bool,
         Optional('rollout-percentage'): Any(int, None),
+    }, {
+        Required('implementation'): 'shipit',
+        Required('release-name'): basestring,
     }),
 })
 
@@ -865,15 +869,22 @@ def build_docker_worker_payload(config, task, task_def):
         # the run-task content into the cache name. However, doing so preserves
         # the mechanism whereby changing run-task results in new caches
         # everywhere.
+
+        # As an additional mechanism to force the use of different caches, the
+        # string literal in the variable below can be changed. This is
+        # preferred to changing run-task because it doesn't require images
+        # to be rebuilt.
+        cache_version = 'v2'
+
         if run_task:
-            suffix = '-%s' % _run_task_suffix()
+            suffix = '-%s-%s' % (cache_version, _run_task_suffix())
 
             if out_of_tree_image:
                 name_hash = hashlib.sha256(out_of_tree_image).hexdigest()
                 suffix += name_hash[0:12]
 
         else:
-            suffix = ''
+            suffix = '-%s' % cache_version
 
         skip_untrusted = config.params.is_try() or level == 1
 
@@ -1056,6 +1067,15 @@ def build_push_apk_payload(config, task, task_def):
 @payload_builder('push-apk-breakpoint')
 def build_push_apk_breakpoint_payload(config, task, task_def):
     task_def['payload'] = task['worker']['payload']
+
+
+@payload_builder('shipit')
+def build_ship_it_payload(config, task, task_def):
+    worker = task['worker']
+
+    task_def['payload'] = {
+        'release_name': worker['release-name']
+    }
 
 
 @payload_builder('invalid')
@@ -1618,9 +1638,10 @@ def check_caches_are_volumes(task):
         return
 
     raise Exception('task %s (image %s) has caches that are not declared as '
-                    'Docker volumes: %s' % (task['label'],
-                                            task['worker']['docker-image'],
-                                            ', '.join(sorted(missing))))
+                    'Docker volumes: %s'
+                    'Have you added them as VOLUMEs in the Dockerfile?'
+                    % (task['label'], task['worker']['docker-image'],
+                       ', '.join(sorted(missing))))
 
 
 @transforms.add

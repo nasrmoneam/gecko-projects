@@ -14,6 +14,7 @@
 #include "mozilla/RangeBoundary.h"      // for RawRangeBoundary, RangeBoundary
 #include "mozilla/SelectionState.h"     // for RangeUpdater, etc.
 #include "mozilla/StyleSheet.h"         // for StyleSheet
+#include "mozilla/TextEditRules.h"      // for TextEditRules
 #include "mozilla/WeakPtr.h"            // for WeakPtr
 #include "mozilla/dom/Selection.h"
 #include "mozilla/dom/Text.h"
@@ -25,6 +26,7 @@
 #include "nsIObserver.h"                // for NS_DECL_NSIOBSERVER, etc.
 #include "nsIPlaintextEditor.h"         // for nsIPlaintextEditor, etc.
 #include "nsISelectionController.h"     // for nsISelectionController constants
+#include "nsISelectionListener.h"       // for nsISelectionListener
 #include "nsISupportsImpl.h"            // for EditorBase::Release, etc.
 #include "nsIWeakReferenceUtils.h"      // for nsWeakPtr
 #include "nsLiteralString.h"            // for NS_LITERAL_STRING
@@ -33,6 +35,7 @@
 #include "nsWeakReference.h"            // for nsSupportsWeakReference
 #include "nscore.h"                     // for nsresult, nsAString, etc.
 
+class mozInlineSpellChecker;
 class nsAtom;
 class nsIContent;
 class nsIDOMDocument;
@@ -43,7 +46,6 @@ class nsIDOMNode;
 class nsIDocumentStateListener;
 class nsIEditActionListener;
 class nsIEditorObserver;
-class nsIInlineSpellChecker;
 class nsINode;
 class nsIPresShell;
 class nsISupports;
@@ -51,57 +53,6 @@ class nsITransaction;
 class nsIWidget;
 class nsRange;
 class nsTransactionManager;
-
-// This is int32_t instead of int16_t because nsIInlineSpellChecker.idl's
-// spellCheckAfterEditorChange is defined to take it as a long.
-// XXX EditAction causes unnecessary include of EditorBase from some places.
-//     Why don't you move this to nsIEditor.idl?
-enum class EditAction : int32_t
-{
-  ignore = -1,
-  none = 0,
-  undo,
-  redo,
-  insertNode,
-  createNode,
-  deleteNode,
-  splitNode,
-  joinNode,
-  deleteText = 1003,
-
-  // text commands
-  insertText         = 2000,
-  insertIMEText      = 2001,
-  deleteSelection    = 2002,
-  setTextProperty    = 2003,
-  removeTextProperty = 2004,
-  outputText         = 2005,
-  setText            = 2006,
-
-  // html only action
-  insertBreak         = 3000,
-  makeList            = 3001,
-  indent              = 3002,
-  outdent             = 3003,
-  align               = 3004,
-  makeBasicBlock      = 3005,
-  removeList          = 3006,
-  makeDefListItem     = 3007,
-  insertElement       = 3008,
-  insertQuotation     = 3009,
-  htmlPaste           = 3012,
-  loadHTML            = 3013,
-  resetTextProperties = 3014,
-  setAbsolutePosition = 3015,
-  removeAbsolutePosition = 3016,
-  decreaseZIndex      = 3017,
-  increaseZIndex      = 3018
-};
-
-inline bool operator!(const EditAction& aOp)
-{
-  return aOp == EditAction::none;
-}
 
 namespace mozilla {
 class AddStyleSheetTransaction;
@@ -117,6 +68,7 @@ class EditAggregateTransaction;
 class EditTransactionBase;
 class ErrorResult;
 class HTMLEditor;
+class IMEContentObserver;
 class InsertNodeTransaction;
 class InsertTextTransaction;
 class JoinNodeTransaction;
@@ -126,6 +78,9 @@ class SplitNodeResult;
 class SplitNodeTransaction;
 class TextComposition;
 class TextEditor;
+class TextInputListener;
+class TextServicesDocument;
+enum class EditAction : int32_t;
 
 namespace dom {
 class DataTransfer;
@@ -234,6 +189,7 @@ enum class SplitAtEdges
  * implementation.
  */
 class EditorBase : public nsIEditor
+                 , public nsISelectionListener
                  , public nsSupportsWeakReference
 {
 public:
@@ -299,6 +255,21 @@ public:
 
   // nsIEditor methods
   NS_DECL_NSIEDITOR
+
+  // nsISelectionListener method
+  NS_DECL_NSISELECTIONLISTENER
+
+  /**
+   * Set or unset TextInputListener.  If setting non-nullptr when the editor
+   * already has a TextInputListener, this will crash in debug build.
+   */
+  void SetTextInputListener(TextInputListener* aTextInputListener);
+
+  /**
+   * Set or unset IMEContentObserver.  If setting non-nullptr when the editor
+   * already has an IMEContentObserver, this will crash in debug build.
+   */
+  void SetIMEContentObserver(IMEContentObserver* aIMEContentObserver);
 
 public:
   virtual bool IsModifiableNode(nsINode* aNode);
@@ -805,15 +776,6 @@ public:
   static nsINode* GetNodeLocation(nsINode* aChild, int32_t* aOffset);
 
   /**
-   * Returns the number of things inside aNode in the out-param aCount.
-   * @param  aNode is the node to get the length of.
-   *         If aNode is text, returns number of characters.
-   *         If not, returns number of children nodes.
-   * @param  aCount [OUT] the result of the above calculation.
-   */
-  static nsresult GetLengthOfDOMNode(nsIDOMNode *aNode, uint32_t &aCount);
-
-  /**
    * Get the previous node.
    */
   nsIContent* GetPreviousNode(const EditorRawDOMPoint& aPoint)
@@ -973,11 +935,11 @@ public:
     }
 
     switch (aNode->NodeType()) {
-      case nsIDOMNode::ELEMENT_NODE:
+      case nsINode::ELEMENT_NODE:
         // In HTML editors, if we're dealing with an element, then ask it
         // whether it's editable.
         return mIsHTMLEditorClass ? aNode->IsEditable() : true;
-      case nsIDOMNode::TEXT_NODE:
+      case nsINode::TEXT_NODE:
         // Text nodes are considered to be editable by both typed of editors.
         return true;
       default:
@@ -1047,7 +1009,7 @@ public:
   static bool IsTextNode(nsIDOMNode* aNode);
   static bool IsTextNode(nsINode* aNode)
   {
-    return aNode->NodeType() == nsIDOMNode::TEXT_NODE;
+    return aNode->NodeType() == nsINode::TEXT_NODE;
   }
 
   /**
@@ -1080,9 +1042,6 @@ public:
   static nsresult GetEndChildNode(Selection* aSelection,
                                   nsIContent** aEndNode);
 
-#if DEBUG_JOE
-  static void DumpNode(nsIDOMNode* aNode, int32_t indent = 0);
-#endif
   Selection* GetSelection(SelectionType aSelectionType =
                                           SelectionType::eNormal)
   {
@@ -1442,7 +1401,9 @@ protected:
   // MIME type of the doc we are editing.
   nsCString mContentMIMEType;
 
-  nsCOMPtr<nsIInlineSpellChecker> mInlineSpellChecker;
+  RefPtr<mozInlineSpellChecker> mInlineSpellChecker;
+  // Reference to text services document for mInlineSpellChecker.
+  RefPtr<TextServicesDocument> mTextServicesDocument;
 
   RefPtr<nsTransactionManager> mTxnMgr;
   // Cached root node.
@@ -1459,6 +1420,12 @@ protected:
   // IME composition this is not null between compositionstart and
   // compositionend.
   RefPtr<TextComposition> mComposition;
+
+  RefPtr<TextEditRules> mRules;
+
+  RefPtr<TextInputListener> mTextInputListener;
+
+  RefPtr<IMEContentObserver> mIMEContentObserver;
 
   // Listens to all low level actions on the doc.
   typedef AutoTArray<OwningNonNull<nsIEditActionListener>, 5>

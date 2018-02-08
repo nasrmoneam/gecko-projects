@@ -10,10 +10,10 @@ var Cu = Components.utils;
 var Cc = Components.classes;
 var Cr = Components.results;
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/AppConstants.jsm");
-Cu.import("resource://gre/modules/NotificationDB.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+ChromeUtils.import("resource://gre/modules/NotificationDB.jsm");
 
 const {WebExtensionPolicy} = Cu.getGlobalForObject(Services);
 
@@ -41,6 +41,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   NewTabUtils: "resource://gre/modules/NewTabUtils.jsm",
   PageActions: "resource:///modules/PageActions.jsm",
   PageThumbs: "resource://gre/modules/PageThumbs.jsm",
+  PanelView: "resource:///modules/PanelMultiView.jsm",
   PluralForm: "resource://gre/modules/PluralForm.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   ProcessHangMonitor: "resource:///modules/ProcessHangMonitor.jsm",
@@ -68,7 +69,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 });
 
 if (AppConstants.MOZ_CRASHREPORTER) {
-  XPCOMUtils.defineLazyModuleGetter(this, "PluginCrashReporter",
+  ChromeUtils.defineModuleGetter(this, "PluginCrashReporter",
     "resource:///modules/ContentCrashHandlers.jsm");
 }
 
@@ -116,7 +117,10 @@ XPCOMUtils.defineLazyScriptGetter(this, ["DownloadsButton",
                                   "chrome://browser/content/downloads/indicator.js");
 XPCOMUtils.defineLazyScriptGetter(this, "gEditItemOverlay",
                                   "chrome://browser/content/places/editBookmarkOverlay.js");
-
+if (AppConstants.NIGHTLY_BUILD) {
+  XPCOMUtils.defineLazyScriptGetter(this, "gWebRender",
+                                    "chrome://browser/content/browser-webrender.js");
+}
 
 // lazy service getters
 
@@ -139,31 +143,43 @@ if (AppConstants.MOZ_CRASHREPORTER) {
 XPCOMUtils.defineLazyGetter(this, "gBrowserBundle", function() {
   return Services.strings.createBundle("chrome://browser/locale/browser.properties");
 });
+XPCOMUtils.defineLazyGetter(this, "gNavigatorBundle", function() {
+  // This is a stringbundle-like interface to gBrowserBundle, formerly a getter for
+  // the "bundle_browser" element.
+  return {
+    getString(key) {
+      return gBrowserBundle.GetStringFromName(key);
+    },
+    getFormattedString(key, array) {
+      return gBrowserBundle.formatStringFromName(key, array, array.length);
+    }
+  };
+});
 XPCOMUtils.defineLazyGetter(this, "gTabBrowserBundle", function() {
   return Services.strings.createBundle("chrome://browser/locale/tabbrowser.properties");
 });
 
 XPCOMUtils.defineLazyGetter(this, "gCustomizeMode", function() {
   let scope = {};
-  Cu.import("resource:///modules/CustomizeMode.jsm", scope);
+  ChromeUtils.import("resource:///modules/CustomizeMode.jsm", scope);
   return new scope.CustomizeMode(window);
 });
 
 XPCOMUtils.defineLazyGetter(this, "InlineSpellCheckerUI", function() {
   let tmp = {};
-  Cu.import("resource://gre/modules/InlineSpellChecker.jsm", tmp);
+  ChromeUtils.import("resource://gre/modules/InlineSpellChecker.jsm", tmp);
   return new tmp.InlineSpellChecker();
 });
 
 XPCOMUtils.defineLazyGetter(this, "PageMenuParent", function() {
   let tmp = {};
-  Cu.import("resource://gre/modules/PageMenu.jsm", tmp);
+  ChromeUtils.import("resource://gre/modules/PageMenu.jsm", tmp);
   return new tmp.PageMenuParent();
 });
 
 XPCOMUtils.defineLazyGetter(this, "PopupNotifications", function() {
   let tmp = {};
-  Cu.import("resource://gre/modules/PopupNotifications.jsm", tmp);
+  ChromeUtils.import("resource://gre/modules/PopupNotifications.jsm", tmp);
   try {
     // Hide all notifications while the URL is being edited and the address bar
     // has focus, including the virtual focus in the results popup.
@@ -192,7 +208,7 @@ XPCOMUtils.defineLazyGetter(this, "Win7Features", function() {
   const WINTASKBAR_CONTRACTID = "@mozilla.org/windows-taskbar;1";
   if (WINTASKBAR_CONTRACTID in Cc &&
       Cc[WINTASKBAR_CONTRACTID].getService(Ci.nsIWinTaskbar).available) {
-    let AeroPeek = Cu.import("resource:///modules/WindowsPreviewPerTab.jsm", {}).AeroPeek;
+    let AeroPeek = ChromeUtils.import("resource:///modules/WindowsPreviewPerTab.jsm", {}).AeroPeek;
     return {
       onOpenWindow() {
         AeroPeek.onOpenWindow(window);
@@ -220,12 +236,11 @@ if (AppConstants.platform != "macosx") {
   var gEditUIVisible = true;
 }
 
-/* globals gBrowser, gNavToolbox, gURLBar:true, gNavigatorBundle*/
+/* globals gBrowser, gNavToolbox, gURLBar:true */
 [
   ["gBrowser",            "content"],
   ["gNavToolbox",         "navigator-toolbox"],
   ["gURLBar",             "urlbar"],
-  ["gNavigatorBundle",    "bundle_browser"]
 ].forEach(function(elementGlobal) {
   var [name, id] = elementGlobal;
   Object.defineProperty(window, name, {
@@ -269,7 +284,7 @@ Object.defineProperty(this, "AddonManager", {
   enumerable: true,
   get() {
     let tmp = {};
-    Cu.import("resource://gre/modules/AddonManager.jsm", tmp);
+    ChromeUtils.import("resource://gre/modules/AddonManager.jsm", tmp);
     return this.AddonManager = tmp.AddonManager;
   },
   set(val) {
@@ -1309,7 +1324,7 @@ var gBrowserInit = {
 
     if (window.matchMedia("(-moz-os-version: windows-win8)").matches &&
         window.matchMedia("(-moz-windows-default-theme)").matches) {
-      let windowFrameColor = new Color(...Cu.import("resource:///modules/Windows8WindowFrameColor.jsm", {})
+      let windowFrameColor = new Color(...ChromeUtils.import("resource:///modules/Windows8WindowFrameColor.jsm", {})
                                             .Windows8WindowFrameColor.get());
       // Default to black for foreground text.
       if (!windowFrameColor.isContrastRatioAcceptable(new Color(0, 0, 0))) {
@@ -1366,7 +1381,7 @@ var gBrowserInit = {
 
   _delayedStartup() {
     let tmp = {};
-    Cu.import("resource://gre/modules/TelemetryTimestamps.jsm", tmp);
+    ChromeUtils.import("resource://gre/modules/TelemetryTimestamps.jsm", tmp);
     let TelemetryTimestamps = tmp.TelemetryTimestamps;
     TelemetryTimestamps.add("delayedStartupStarted");
 
@@ -1467,7 +1482,7 @@ var gBrowserInit = {
     if (!getBoolPref("ui.click_hold_context_menus", false))
       SetClickAndHoldHandlers();
 
-    Cu.import("resource:///modules/UpdateTopLevelContentWindowIDHelper.jsm", {})
+    ChromeUtils.import("resource:///modules/UpdateTopLevelContentWindowIDHelper.jsm", {})
       .trackBrowserWindow(window);
 
     PlacesToolbarHelper.init();
@@ -1714,7 +1729,7 @@ var gBrowserInit = {
       // downloads will start right away, and initializing again won't hurt.
       try {
         DownloadsCommon.initializeAllDataLinks();
-        Cu.import("resource:///modules/DownloadsTaskbar.jsm", {})
+        ChromeUtils.import("resource:///modules/DownloadsTaskbar.jsm", {})
           .DownloadsTaskbar.registerIndicator(window);
       } catch (ex) {
         Cu.reportError(ex);
@@ -6591,7 +6606,13 @@ var CanvasPermissionPromptHelper = {
       return;
     }
 
-    let message = gNavigatorBundle.getFormattedString("canvas.siteprompt", [ uri.asciiHost ]);
+    let message = {};
+    let header = gNavigatorBundle.getFormattedString("canvas.siteprompt", ["<>"], 1);
+
+    header = header.split("<>");
+    message.start = header[0];
+    message.host = uri.asciiHost;
+    message.end = header[1];
 
     function setCanvasPermission(aURI, aPerm, aPersistent) {
       Services.perms.add(aURI, "canvas", aPerm,
@@ -7138,21 +7159,19 @@ var gIdentityHandler = {
     delete this._identityPopupMultiView;
     return this._identityPopupMultiView = document.getElementById("identity-popup-multiView");
   },
+  get _identityPopupMainView() {
+    delete this._identityPopupMainView;
+    return this._identityPopupMainView = document.getElementById("identity-popup-mainView");
+  },
   get _identityPopupContentHosts() {
     delete this._identityPopupContentHosts;
-    let selector = ".identity-popup-host";
-    return this._identityPopupContentHosts = [
-      ...this._identityPopupMultiView._mainView.querySelectorAll(selector),
-      ...document.querySelectorAll(selector)
-    ];
+    return this._identityPopupContentHosts =
+      [...document.querySelectorAll(".identity-popup-host")];
   },
   get _identityPopupContentHostless() {
     delete this._identityPopupContentHostless;
-    let selector = ".identity-popup-hostless";
-    return this._identityPopupContentHostless = [
-      ...this._identityPopupMultiView._mainView.querySelectorAll(selector),
-      ...document.querySelectorAll(selector)
-    ];
+    return this._identityPopupContentHostless =
+      [...document.querySelectorAll(".identity-popup-hostless")];
   },
   get _identityPopupContentOwner() {
     delete this._identityPopupContentOwner;
@@ -7394,7 +7413,8 @@ var gIdentityHandler = {
 
     if (this._identityPopup.state == "open") {
       this.updateSitePermissions();
-      this._identityPopupMultiView.descriptionHeightWorkaround();
+      PanelView.forNode(this._identityPopupMainView)
+               .descriptionHeightWorkaround();
     }
   },
 
@@ -7511,8 +7531,15 @@ var gIdentityHandler = {
                              (Services.prefs.getBoolPref("security.insecure_connection_icon.pbmode.enabled") &&
                              PrivateBrowsingUtils.isWindowPrivate(window));
         let className = warnOnInsecure ? "notSecure" : "unknownIdentity";
-
         this._identityBox.className = className;
+
+        let warnTextOnInsecure = Services.prefs.getBoolPref("security.insecure_connection_text.enabled") ||
+                                 (Services.prefs.getBoolPref("security.insecure_connection_text.pbmode.enabled") &&
+                                 PrivateBrowsingUtils.isWindowPrivate(window));
+        if (warnTextOnInsecure) {
+          icon_label = gNavigatorBundle.getString("identity.notSecure.label");
+          this._identityBox.classList.add("notSecureText");
+        }
       }
       if (this._hasInsecureLoginForms) {
         // Insecure login forms can only be present on "unknown identity"
@@ -8043,7 +8070,8 @@ var gIdentityHandler = {
       SitePermissions.remove(gBrowser.currentURI, aPermission.id, browser);
 
       this._permissionReloadHint.removeAttribute("hidden");
-      this._identityPopupMultiView.descriptionHeightWorkaround();
+      PanelView.forNode(this._identityPopupMainView)
+               .descriptionHeightWorkaround();
 
       // Set telemetry values for clearing a permission
       let histogram = Services.telemetry.getKeyedHistogramById("WEB_PERMISSION_CLEARED");
@@ -8576,7 +8604,7 @@ var TabContextMenu = {
       case "TabAttrModified":
         let tab = aEvent.target;
         this._updateToggleMuteMenuItem(tab,
-          attr => aEvent.detail.changed.indexOf(attr) >= 0);
+          attr => aEvent.detail.changed.includes(attr));
         break;
     }
   }

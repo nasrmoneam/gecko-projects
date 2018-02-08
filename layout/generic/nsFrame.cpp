@@ -43,8 +43,10 @@
 #include "nsFrameManager.h"
 #include "nsLayoutUtils.h"
 #include "LayoutLogging.h"
+#ifdef MOZ_OLD_STYLE
 #include "mozilla/GeckoStyleContext.h"
 #include "mozilla/GeckoRestyleManager.h"
+#endif
 #include "mozilla/RestyleManager.h"
 #include "mozilla/RestyleManagerInlines.h"
 #include "nsInlineFrame.h"
@@ -103,6 +105,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/RuleNodeCacheConditions.h"
 #include "mozilla/ServoStyleSet.h"
 #include "mozilla/css/ImageLoader.h"
 #include "mozilla/gfx/Tools.h"
@@ -779,6 +782,7 @@ nsFrame::DestroyFrom(nsIFrame* aDestructRoot, PostDestroyData& aPostDestroyData)
     // because what matters is whether the new style (not the old)
     // specifies CSS transitions.
     if (presContext->RestyleManager()->IsGecko()) {
+#ifdef MOZ_OLD_STYLE
       // stylo: ServoRestyleManager does not handle transitions yet, and when
       // it does it probably won't need to track reframed style contexts to
       // initiate transitions correctly.
@@ -787,6 +791,9 @@ nsFrame::DestroyFrom(nsIFrame* aDestructRoot, PostDestroyData& aPostDestroyData)
       if (rsc) {
         rsc->Put(mContent, mStyleContext->AsGecko());
       }
+#else
+      MOZ_CRASH("old style system disabled");
+#endif
     }
   }
 
@@ -1007,6 +1014,22 @@ nsIFrame::RemoveDisplayItemDataForDeletion()
       }
     }
   }
+
+  if (HasOverrideDirtyRegion()) {
+    nsIFrame* rootFrame = PresContext()->PresShell()->GetRootFrame();
+    MOZ_ASSERT(rootFrame);
+
+    nsTArray<nsIFrame*>* frames =
+      rootFrame->GetProperty(nsIFrame::OverriddenDirtyRectFrameList());
+    MOZ_ASSERT(frames);
+
+    for (auto& frame : *frames) {
+      if (frame == this) {
+        frame = nullptr;
+        break;
+      }
+    }
+  }
 }
 
 void
@@ -1016,6 +1039,11 @@ nsIFrame::MarkNeedsDisplayItemRebuild()
       IsFrameModified() ||
       HasAnyStateBits(NS_FRAME_IN_POPUP)) {
     // Skip frames that are already marked modified.
+    return;
+  }
+
+  if (Type() == LayoutFrameType::Placeholder) {
+    // Do not mark placeholder frames modified.
     return;
   }
 
@@ -2260,7 +2288,7 @@ nsFrame::DisplaySelectionOverlay(nsDisplayListBuilder*   aBuilder,
   int32_t offset = 0;
   if (newContent) {
     // XXXbz there has GOT to be a better way of determining this!
-    offset = newContent->IndexOf(mContent);
+    offset = newContent->ComputeIndexOf(mContent);
   }
 
   //look up to see what selection(s) are on this frame
@@ -3999,7 +4027,7 @@ nsFrame::GetDataForTableSelection(const nsFrameSelection* aFrameSelection,
   nsCOMPtr<nsIContent> parentContent = tableOrCellContent->GetParent();
   if (!parentContent) return NS_ERROR_FAILURE;
 
-  int32_t offset = parentContent->IndexOf(tableOrCellContent);
+  int32_t offset = parentContent->ComputeIndexOf(tableOrCellContent);
   // Not likely?
   if (offset < 0) return NS_ERROR_FAILURE;
 
@@ -4720,37 +4748,40 @@ struct MOZ_STACK_CLASS FrameContentRange {
 
 // Retrieve the content offsets of a frame
 static FrameContentRange GetRangeForFrame(nsIFrame* aFrame) {
-  nsCOMPtr<nsIContent> content, parent;
-  content = aFrame->GetContent();
+  nsIContent* content = aFrame->GetContent();
   if (!content) {
     NS_WARNING("Frame has no content");
     return FrameContentRange(nullptr, -1, -1);
   }
+
   LayoutFrameType type = aFrame->Type();
   if (type == LayoutFrameType::Text) {
     int32_t offset, offsetEnd;
     aFrame->GetOffsets(offset, offsetEnd);
     return FrameContentRange(content, offset, offsetEnd);
   }
+
   if (type == LayoutFrameType::Br) {
-    parent = content->GetParent();
-    int32_t beginOffset = parent->IndexOf(content);
+    nsIContent* parent = content->GetParent();
+    int32_t beginOffset = parent->ComputeIndexOf(content);
     return FrameContentRange(parent, beginOffset, beginOffset);
   }
-  // Loop to deal with anonymous content, which has no index; this loop
-  // probably won't run more than twice under normal conditions
-  do {
-    parent  = content->GetParent();
-    if (parent) {
-      int32_t beginOffset = parent->IndexOf(content);
-      if (beginOffset >= 0)
-        return FrameContentRange(parent, beginOffset, beginOffset + 1);
-      content = parent;
-    }
-  } while (parent);
 
-  // The root content node must act differently
-  return FrameContentRange(content, 0, content->GetChildCount());
+  while (content->IsRootOfAnonymousSubtree()) {
+    content = content->GetParent();
+  }
+
+  nsIContent* parent = content->GetParent();
+  if (nsLayoutUtils::GetAsBlock(aFrame) || !parent) {
+    return FrameContentRange(content, 0, content->GetChildCount());
+  }
+
+  // TODO(emilio): Revise this in presence of Shadow DOM / display: contents,
+  // it's likely that we don't want to just walk the light tree, and we need to
+  // change the representation of FrameContentRange.
+  int32_t index = parent->ComputeIndexOf(content);
+  MOZ_ASSERT(index >= 0);
+  return FrameContentRange(parent, index, index + 1);
 }
 
 // The FrameTarget represents the closest frame to a point that can be selected
@@ -4758,20 +4789,22 @@ static FrameContentRange GetRangeForFrame(nsIFrame* aFrame) {
 // frame is the result (in which case different handling is needed), and
 // afterFrame says which end is repersented if frameEdge is true
 struct FrameTarget {
-  FrameTarget(nsIFrame* aFrame, bool aFrameEdge, bool aAfterFrame,
-              bool aEmptyBlock = false) :
-    frame(aFrame), frameEdge(aFrameEdge), afterFrame(aAfterFrame),
-    emptyBlock(aEmptyBlock) { }
+  FrameTarget(nsIFrame* aFrame, bool aFrameEdge, bool aAfterFrame)
+    : frame(aFrame)
+    , frameEdge(aFrameEdge)
+    , afterFrame(aAfterFrame)
+  {}
+
   static FrameTarget Null() {
     return FrameTarget(nullptr, false, false);
   }
+
   bool IsNull() {
     return !frame;
   }
   nsIFrame* frame;
   bool frameEdge;
   bool afterFrame;
-  bool emptyBlock;
 };
 
 // See function implementation for information
@@ -4861,11 +4894,12 @@ static FrameTarget GetSelectionClosestFrameForLine(
                       const nsPoint& aPoint,
                       uint32_t aFlags)
 {
-  nsIFrame *frame = aLine->mFirstChild;
   // Account for end of lines (any iterator from the block is valid)
   if (aLine == aParent->LinesEnd())
     return DrillDownToSelectionFrame(aParent, true, aFlags);
-  nsIFrame *closestFromIStart = nullptr, *closestFromIEnd = nullptr;
+  nsIFrame* frame = aLine->mFirstChild;
+  nsIFrame* closestFromIStart = nullptr;
+  nsIFrame* closestFromIEnd = nullptr;
   nscoord closestIStart = aLine->IStart(), closestIEnd = aLine->IEnd();
   WritingMode wm = aLine->mWritingMode;
   LogicalPoint pt(wm, aPoint, aLine->mContainerSize);
@@ -4924,62 +4958,56 @@ static FrameTarget GetSelectionClosestFrameForBlock(nsIFrame* aFrame,
     return FrameTarget::Null();
 
   // This code searches for the correct line
-  nsBlockFrame::LineIterator firstLine = bf->LinesBegin();
   nsBlockFrame::LineIterator end = bf->LinesEnd();
-  if (firstLine == end) {
-    nsIContent *blockContent = aFrame->GetContent();
-    if (blockContent) {
-      // Return with empty flag true.
-      return FrameTarget(aFrame, false, false, true);
-    }
-    return FrameTarget::Null();
-  }
-  nsBlockFrame::LineIterator curLine = firstLine;
+  nsBlockFrame::LineIterator curLine = bf->LinesBegin();
   nsBlockFrame::LineIterator closestLine = end;
-  // Convert aPoint into a LogicalPoint in the writing-mode of this block
-  WritingMode wm = curLine->mWritingMode;
-  LogicalPoint pt(wm, aPoint, curLine->mContainerSize);
-  while (curLine != end) {
-    // Check to see if our point lies within the line's block-direction bounds
-    nscoord BCoord = pt.B(wm) - curLine->BStart();
-    nscoord BSize = curLine->BSize();
-    if (BCoord >= 0 && BCoord < BSize) {
-      closestLine = curLine;
-      break; // We found the line; stop looking
-    }
-    if (BCoord < 0)
-      break;
-    ++curLine;
-  }
 
-  if (closestLine == end) {
-    nsBlockFrame::LineIterator prevLine = curLine.prev();
-    nsBlockFrame::LineIterator nextLine = curLine;
-    // Avoid empty lines
-    while (nextLine != end && nextLine->IsEmpty())
-      ++nextLine;
-    while (prevLine != end && prevLine->IsEmpty())
-      --prevLine;
+  if (curLine != end) {
+    // Convert aPoint into a LogicalPoint in the writing-mode of this block
+    WritingMode wm = curLine->mWritingMode;
+    LogicalPoint pt(wm, aPoint, curLine->mContainerSize);
+    do {
+      // Check to see if our point lies within the line's block-direction bounds
+      nscoord BCoord = pt.B(wm) - curLine->BStart();
+      nscoord BSize = curLine->BSize();
+      if (BCoord >= 0 && BCoord < BSize) {
+        closestLine = curLine;
+        break; // We found the line; stop looking
+      }
+      if (BCoord < 0)
+        break;
+      ++curLine;
+    } while (curLine != end);
 
-    // This hidden pref dictates whether a point above or below all lines comes
-    // up with a line or the beginning or end of the frame; 0 on Windows,
-    // 1 on other platforms by default at the writing of this code
-    int32_t dragOutOfFrame =
-      Preferences::GetInt("browser.drag_out_of_frame_style");
+    if (closestLine == end) {
+      nsBlockFrame::LineIterator prevLine = curLine.prev();
+      nsBlockFrame::LineIterator nextLine = curLine;
+      // Avoid empty lines
+      while (nextLine != end && nextLine->IsEmpty())
+        ++nextLine;
+      while (prevLine != end && prevLine->IsEmpty())
+        --prevLine;
 
-    if (prevLine == end) {
-      if (dragOutOfFrame == 1 || nextLine == end)
-        return DrillDownToSelectionFrame(aFrame, false, aFlags);
-      closestLine = nextLine;
-    } else if (nextLine == end) {
-      if (dragOutOfFrame == 1)
-        return DrillDownToSelectionFrame(aFrame, true, aFlags);
-      closestLine = prevLine;
-    } else { // Figure out which line is closer
-      if (pt.B(wm) - prevLine->BEnd() < nextLine->BStart() - pt.B(wm))
-        closestLine = prevLine;
-      else
+      // This hidden pref dictates whether a point above or below all lines comes
+      // up with a line or the beginning or end of the frame; 0 on Windows,
+      // 1 on other platforms by default at the writing of this code
+      int32_t dragOutOfFrame =
+        Preferences::GetInt("browser.drag_out_of_frame_style");
+
+      if (prevLine == end) {
+        if (dragOutOfFrame == 1 || nextLine == end)
+          return DrillDownToSelectionFrame(aFrame, false, aFlags);
         closestLine = nextLine;
+      } else if (nextLine == end) {
+        if (dragOutOfFrame == 1)
+          return DrillDownToSelectionFrame(aFrame, true, aFlags);
+        closestLine = prevLine;
+      } else { // Figure out which line is closer
+        if (pt.B(wm) - prevLine->BEnd() < nextLine->BStart() - pt.B(wm))
+          closestLine = prevLine;
+        else
+          closestLine = nextLine;
+      }
     }
   }
 
@@ -4990,6 +5018,7 @@ static FrameTarget GetSelectionClosestFrameForBlock(nsIFrame* aFrame,
       return target;
     ++closestLine;
   } while (closestLine != end);
+
   // Fall back to just targeting the last targetable place
   return DrillDownToSelectionFrame(aFrame, true, aFlags);
 }
@@ -5126,17 +5155,6 @@ nsIFrame::ContentOffsets nsIFrame::GetContentOffsetsFromPoint(const nsPoint& aPo
 
   FrameTarget closest =
     GetSelectionClosestFrame(adjustedFrame, adjustedPoint, aFlags);
-
-  if (closest.emptyBlock) {
-    ContentOffsets offsets;
-    NS_ASSERTION(closest.frame,
-                 "closest.frame must not be null when it's empty");
-    offsets.content = closest.frame->GetContent();
-    offsets.offset = 0;
-    offsets.secondaryOffset = 0;
-    offsets.associate = CARET_ASSOCIATE_AFTER;
-    return offsets;
-  }
 
   // If the correct offset is at one end of a frame, use offset-based
   // calculation method
@@ -7616,7 +7634,7 @@ int32_t nsFrame::ContentIndexInContainer(const nsIFrame* aFrame)
   if (content) {
     nsIContent* parentContent = content->GetParent();
     if (parentContent) {
-      result = parentContent->IndexOf(content);
+      result = parentContent->ComputeIndexOf(content);
     }
   }
 
@@ -7744,6 +7762,7 @@ nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix, uint32_t aFlags) con
       pseudoTag->ToString(atomString);
       aTo += nsPrintfCString("%s", NS_LossyConvertUTF16toASCII(atomString).get());
     }
+#ifdef MOZ_OLD_STYLE
     if (auto* geckoContext = mStyleContext->GetAsGecko()) {
       if (!geckoContext->GetParent() ||
           (GetParent() && GetParent()->StyleContext() != geckoContext->GetParent())) {
@@ -7756,6 +7775,7 @@ nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix, uint32_t aFlags) con
         }
       }
     }
+#endif
   }
   aTo += "]";
 }
@@ -7960,7 +7980,7 @@ nsFrame::GetPointFromOffset(int32_t inOffset, nsPoint* outPoint)
   {
     nsIContent* newContent = mContent->GetParent();
     if (newContent){
-      int32_t newOffset = newContent->IndexOf(mContent);
+      int32_t newOffset = newContent->ComputeIndexOf(mContent);
 
       // Find the direction of the frame from the EmbeddingLevelProperty,
       // which is the resolved bidi level set in
@@ -8127,7 +8147,8 @@ nsFrame::GetNextPrevLineFromeBlockFrame(nsPresContext* aPresContext,
                                     false, // aVisual
                                     aPos->mScrollViewStop,
                                     false, // aFollowOOFs
-                                    false  // aSkipPopupChecks
+                                    false, // aSkipPopupChecks
+                                    false  // aSkipShadow
                                     );
       if (NS_FAILED(result))
         return result;
@@ -8169,7 +8190,7 @@ nsFrame::GetNextPrevLineFromeBlockFrame(nsPresContext* aPresContext,
                 if (parent)
                 {
                   aPos->mResultContent = parent;
-                  aPos->mContentOffset = parent->IndexOf(content);
+                  aPos->mContentOffset = parent->ComputeIndexOf(content);
                   aPos->mAttach = CARET_ASSOCIATE_BEFORE;
                   if ((point.x - offset.x+ tempRect.x)>tempRect.width)
                   {
@@ -8224,7 +8245,8 @@ nsFrame::GetNextPrevLineFromeBlockFrame(nsPresContext* aPresContext,
                                       false, // aVisual
                                       aPos->mScrollViewStop,
                                       false, // aFollowOOFs
-                                      false  // aSkipPopupChecks
+                                      false, // aSkipPopupChecks
+                                      false  // aSkipShadow
                                       );
       }
       while ( !found ){
@@ -8320,7 +8342,7 @@ FindBlockFrameOrBR(nsIFrame* aFrame, nsDirection aDirection)
     // to avoid crashing here.
     NS_ASSERTION(result.mContent, "Unexpected orphan content");
     if (result.mContent)
-      result.mOffset = result.mContent->IndexOf(content) +
+      result.mOffset = result.mContent->ComputeIndexOf(content) +
         (aDirection == eDirPrevious ? 1 : 0);
     return result;
   }
@@ -8357,7 +8379,7 @@ nsIFrame::PeekOffsetParagraph(nsPeekOffsetStruct *aPos)
   nsIFrame* frame = this;
   nsContentAndOffset blockFrameOrBR;
   blockFrameOrBR.mContent = nullptr;
-  bool reachedBlockAncestor = false;
+  bool reachedBlockAncestor = !!nsLayoutUtils::GetAsBlock(frame);
 
   // Go through containing frames until reaching a block frame.
   // In each step, search the previous (or next) siblings for the closest
@@ -8408,7 +8430,7 @@ nsIFrame::PeekOffsetParagraph(nsPeekOffsetStruct *aPos)
         break;
       }
       frame = parent;
-      reachedBlockAncestor = (nsLayoutUtils::GetAsBlock(frame) != nullptr);
+      reachedBlockAncestor = !!nsLayoutUtils::GetAsBlock(frame);
     }
     if (reachedBlockAncestor) { // no "stop frame" found
       aPos->mResultContent = frame->GetContent();
@@ -9015,7 +9037,8 @@ nsIFrame::GetFrameFromDirection(nsDirection aDirection, bool aVisual,
                                   aVisual && presContext->BidiEnabled(),
                                   aScrollViewStop,
                                   true,  // aFollowOOFs
-                                  false  // aSkipPopupChecks
+                                  false, // aSkipPopupChecks
+                                  false  // aSkipShadow
                                   );
     if (NS_FAILED(result))
       return result;
@@ -11539,7 +11562,7 @@ DR_init_constraints_cookie::~DR_init_constraints_cookie()
 DR_init_offsets_cookie::DR_init_offsets_cookie(
                      nsIFrame*                aFrame,
                      SizeComputationInput*    aState,
-                     const LogicalSize&       aPercentBasis,
+                     nscoord                  aPercentBasis,
                      WritingMode              aCBWritingMode,
                      const nsMargin*          aMargin,
                      const nsMargin*          aPadding)
@@ -12499,7 +12522,7 @@ ReflowInput::DisplayInitConstraintsExit(nsIFrame* aFrame,
 /* static */ void*
 SizeComputationInput::DisplayInitOffsetsEnter(nsIFrame* aFrame,
                                           SizeComputationInput* aState,
-                                          const LogicalSize& aPercentBasis,
+                                          nscoord aPercentBasis,
                                           WritingMode aCBWritingMode,
                                           const nsMargin* aBorder,
                                           const nsMargin* aPadding)
@@ -12515,13 +12538,9 @@ SizeComputationInput::DisplayInitOffsetsEnter(nsIFrame* aFrame,
   if (treeNode && treeNode->mDisplay) {
     DR_state->DisplayFrameTypeInfo(aFrame, treeNode->mIndent);
 
-    char horizPctBasisStr[16];
-    char vertPctBasisStr[16];
-    DR_state->PrettyUC(aPercentBasis.ISize(aCBWritingMode),
-                       horizPctBasisStr, 16);
-    DR_state->PrettyUC(aPercentBasis.BSize(aCBWritingMode),
-                       vertPctBasisStr, 16);
-    printf("InitOffsets pct_basis=%s,%s", horizPctBasisStr, vertPctBasisStr);
+    char pctBasisStr[16];
+    DR_state->PrettyUC(aPercentBasis, pctBasisStr, 16);
+    printf("InitOffsets pct_basis=%s", pctBasisStr);
 
     DR_state->PrintMargin("b", aBorder);
     DR_state->PrintMargin("p", aPadding);

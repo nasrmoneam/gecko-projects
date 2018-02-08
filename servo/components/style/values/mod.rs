@@ -13,9 +13,9 @@ pub use cssparser::{RGBA, Token, Parser, serialize_identifier, CowRcStr, SourceL
 use parser::{Parse, ParserContext};
 use selectors::parser::SelectorParseErrorKind;
 #[allow(unused_imports)] use std::ascii::AsciiExt;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Write};
 use std::hash;
-use style_traits::{ToCss, ParseError, StyleParseErrorKind};
+use style_traits::{CssWriter, ParseError, StyleParseErrorKind, ToCss};
 
 pub mod animated;
 pub mod computed;
@@ -34,8 +34,9 @@ define_keyword_type!(Auto, "auto");
 define_keyword_type!(Normal, "normal");
 
 /// Serialize a normalized value into percentage.
-pub fn serialize_percentage<W>(value: CSSFloat, dest: &mut W)
-    -> fmt::Result where W: fmt::Write
+pub fn serialize_percentage<W>(value: CSSFloat, dest: &mut CssWriter<W>) -> fmt::Result
+where
+    W: Write,
 {
     (value * 100.).to_css(dest)?;
     dest.write_str("%")
@@ -109,7 +110,10 @@ impl CustomIdent {
 }
 
 impl ToCss for CustomIdent {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
+    {
         serialize_identifier(&self.0.to_string(), dest)
     }
 }
@@ -180,7 +184,10 @@ impl Parse for KeyframesName {
 }
 
 impl ToCss for KeyframesName {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
+    {
         match *self {
             KeyframesName::Ident(ref ident) => ident.to_css(dest),
             KeyframesName::QuotedString(ref atom) => atom.to_string().to_css(dest),
@@ -188,10 +195,14 @@ impl ToCss for KeyframesName {
     }
 }
 
-// A type for possible values for min- and max- flavors of width,
-// height, block-size, and inline-size.
-define_css_keyword_enum!(ExtremumLength:
-                         "-moz-max-content" => MaxContent,
-                         "-moz-min-content" => MinContent,
-                         "-moz-fit-content" => FitContent,
-                         "-moz-available" => FillAvailable);
+/// A type for possible values for min- and max- flavors of width,
+/// height, block-size, and inline-size.
+#[allow(missing_docs)]
+#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
+#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, Parse, PartialEq, ToCss)]
+pub enum ExtremumLength {
+    MozMaxContent,
+    MozMinContent,
+    MozFitContent,
+    MozAvailable,
+}

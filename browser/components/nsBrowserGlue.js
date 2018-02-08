@@ -9,9 +9,11 @@ const Cu = Components.utils;
 
 const XULNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/AppConstants.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/Services.jsm");
+ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+
+Cu.importGlobalProperties(["fetch"]);
 
 XPCOMUtils.defineLazyServiceGetter(this, "WindowsUIUtils", "@mozilla.org/windows-ui-utils;1", "nsIWindowsUIUtils");
 XPCOMUtils.defineLazyGetter(this, "WeaveService", () =>
@@ -64,6 +66,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   RecentWindow: "resource:///modules/RecentWindow.jsm",
   RemotePrompt: "resource:///modules/RemotePrompt.jsm",
   SafeBrowsing: "resource://gre/modules/SafeBrowsing.jsm",
+  Sanitizer: "resource:///modules/Sanitizer.jsm",
   SessionStore: "resource:///modules/sessionstore/SessionStore.jsm",
   ShellService: "resource:///modules/ShellService.jsm",
   SimpleServiceDiscovery: "resource://gre/modules/SimpleServiceDiscovery.jsm",
@@ -92,7 +95,7 @@ let initializedModules = {};
   ["webrtcUI", "resource:///modules/webrtcUI.jsm", "init"],
 ].forEach(([name, resource, init]) => {
   XPCOMUtils.defineLazyGetter(this, name, () => {
-    Cu.import(resource, initializedModules);
+    ChromeUtils.import(resource, initializedModules);
     initializedModules[name][init]();
     return initializedModules[name];
   });
@@ -241,18 +244,11 @@ function BrowserGlue() {
                                      "nsIIdleService");
 
   XPCOMUtils.defineLazyGetter(this, "_distributionCustomizer", function() {
-                                Cu.import("resource:///modules/distribution.js");
+                                ChromeUtils.import("resource:///modules/distribution.js");
                                 return new DistributionCustomizer();
                               });
 
-  XPCOMUtils.defineLazyGetter(this, "_sanitizer",
-    function() {
-      let sanitizerScope = {};
-      Services.scriptloader.loadSubScript("chrome://browser/content/sanitize.js", sanitizerScope);
-      return sanitizerScope.Sanitizer;
-    });
-
-  XPCOMUtils.defineLazyModuleGetter(this, "fxAccounts", "resource://gre/modules/FxAccounts.jsm");
+  ChromeUtils.defineModuleGetter(this, "fxAccounts", "resource://gre/modules/FxAccounts.jsm");
   XPCOMUtils.defineLazyServiceGetter(this, "AlertsService", "@mozilla.org/alerts-service;1", "nsIAlertsService");
 
   this._init();
@@ -299,7 +295,7 @@ BrowserGlue.prototype = {
     }
     delay = delay <= MAX_DELAY ? delay : MAX_DELAY;
 
-    Cu.import("resource://services-sync/main.js");
+    ChromeUtils.import("resource://services-sync/main.js");
     Weave.Service.scheduler.delayedAutoConnect(delay);
   },
 
@@ -440,7 +436,7 @@ BrowserGlue.prototype = {
             Services.obs.notifyObservers(null, "places-browser-init-complete");
           }
         } else if (data == "migrateMatchBucketsPrefForUIVersion60") {
-          this._migrateMatchBucketsPrefForUIVersion60();
+          this._migrateMatchBucketsPrefForUIVersion60(true);
         }
         break;
       case "initial-migration-will-import-default-bookmarks":
@@ -510,7 +506,7 @@ BrowserGlue.prototype = {
         });
         break;
       case "test-initialize-sanitizer":
-        this._sanitizer.onStartup();
+        Sanitizer.onStartup();
         break;
       case "sync-ui-state:update":
         this._updateFxaBadges();
@@ -767,7 +763,7 @@ BrowserGlue.prototype = {
   },
 
   async _calculateProfileAgeInDays() {
-    let ProfileAge = Cu.import("resource://gre/modules/ProfileAge.jsm", {}).ProfileAge;
+    let ProfileAge = ChromeUtils.import("resource://gre/modules/ProfileAge.jsm", {}).ProfileAge;
     let profileAge = new ProfileAge(null, null);
 
     let creationDate = await profileAge.created;
@@ -827,7 +823,7 @@ BrowserGlue.prototype = {
     if (!win)
       return;
 
-    Cu.import("resource://gre/modules/ResetProfile.jsm");
+    ChromeUtils.import("resource://gre/modules/ResetProfile.jsm");
     if (!ResetProfile.resetSupported())
       return;
 
@@ -909,7 +905,7 @@ BrowserGlue.prototype = {
     let channel = new WebChannel("remote-troubleshooting", "remote-troubleshooting");
     channel.listen((id, data, target) => {
       if (data.command == "request") {
-        let {Troubleshoot} = Cu.import("resource://gre/modules/Troubleshoot.jsm", {});
+        let {Troubleshoot} = ChromeUtils.import("resource://gre/modules/Troubleshoot.jsm", {});
         Troubleshoot.snapshot(snapshotData => {
           // for privacy we remove crash IDs and all preferences (but bug 1091944
           // exists to expose prefs once we are confident of privacy implications)
@@ -934,7 +930,7 @@ BrowserGlue.prototype = {
       // Check if we were just re-installed and offer Firefox Reset
       let updateChannel;
       try {
-        updateChannel = Cu.import("resource://gre/modules/UpdateUtils.jsm", {}).UpdateUtils.UpdateChannel;
+        updateChannel = ChromeUtils.import("resource://gre/modules/UpdateUtils.jsm", {}).UpdateUtils.UpdateChannel;
       } catch (ex) {}
       if (updateChannel) {
         let uninstalledValue =
@@ -1062,7 +1058,7 @@ BrowserGlue.prototype = {
       UnsubmittedCrashHandler.init();
     }
 
-    this._sanitizer.onStartup();
+    Sanitizer.onStartup();
     this._scheduleStartupIdleTasks();
     this._lateTasksIdleObserver = (idleService, topic, data) => {
       if (topic == "idle") {
@@ -1130,7 +1126,7 @@ BrowserGlue.prototype = {
         if (WINTASKBAR_CONTRACTID in Cc &&
             Cc[WINTASKBAR_CONTRACTID].getService(Ci.nsIWinTaskbar).available) {
           let temp = {};
-          Cu.import("resource:///modules/WindowsJumpLists.jsm", temp);
+          ChromeUtils.import("resource:///modules/WindowsJumpLists.jsm", temp);
           temp.WinTaskbarJumpList.startup();
         }
       });
@@ -1147,7 +1143,7 @@ BrowserGlue.prototype = {
     });
 
     Services.tm.idleDispatchToMainThread(() => {
-      let {setTimeout} = Cu.import("resource://gre/modules/Timer.jsm", {});
+      let {setTimeout} = ChromeUtils.import("resource://gre/modules/Timer.jsm", {});
       setTimeout(function() {
         Services.tm.idleDispatchToMainThread(Services.startup.trackStartupCrashEnd);
       }, STARTUP_CRASHES_END_DELAY_MS);
@@ -1200,7 +1196,7 @@ BrowserGlue.prototype = {
 
     Services.tm.idleDispatchToMainThread(() => {
       let obj = {};
-      Cu.import("resource://gre/modules/GMPInstallManager.jsm", obj);
+      ChromeUtils.import("resource://gre/modules/GMPInstallManager.jsm", obj);
       this._gmpInstallManager = new obj.GMPInstallManager();
       // We don't really care about the results, if someone is interested they
       // can check the log.
@@ -1389,7 +1385,7 @@ BrowserGlue.prototype = {
     }
 
     var actions = update.getProperty("actions");
-    if (!actions || actions.indexOf("silent") != -1)
+    if (!actions || actions.includes("silent"))
       return;
 
     var appName = gBrandBundle.GetStringFromName("brandShortName");
@@ -1409,7 +1405,7 @@ BrowserGlue.prototype = {
       return propValue;
     }
 
-    if (actions.indexOf("showNotification") != -1) {
+    if (actions.includes("showNotification")) {
       let text = getNotifyString({propName: "notificationText",
                                   stringName: "puNotifyText",
                                   stringParams: [appName]});
@@ -1439,7 +1435,7 @@ BrowserGlue.prototype = {
                                    buttons);
     }
 
-    if (actions.indexOf("showAlert") == -1)
+    if (!actions.includes("showAlert"))
       return;
 
     let title = getNotifyString({propName: "alertTitle",
@@ -2022,7 +2018,7 @@ BrowserGlue.prototype = {
     }
 
     if (currentUIVersion < 41) {
-      const Preferences = Cu.import("resource://gre/modules/Preferences.jsm", {}).Preferences;
+      const Preferences = ChromeUtils.import("resource://gre/modules/Preferences.jsm", {}).Preferences;
       Preferences.resetBranch("loop.");
     }
 
@@ -2137,7 +2133,7 @@ BrowserGlue.prototype = {
       const MALWARE_PREF = "urlclassifier.malwareTable";
       if (Services.prefs.prefHasUserValue(MALWARE_PREF)) {
         let malwareList = Services.prefs.getCharPref(MALWARE_PREF);
-        if (malwareList.indexOf("goog-malware-shavar") != -1) {
+        if (malwareList.includes("goog-malware-shavar")) {
           malwareList.replace("goog-malware-shavar", "goog-malware-proto");
           Services.prefs.setCharPref(MALWARE_PREF, malwareList);
         }
@@ -2351,7 +2347,13 @@ BrowserGlue.prototype = {
     }
   },
 
-  _migrateMatchBucketsPrefForUIVersion60() {
+  _migrateMatchBucketsPrefForUIVersion60(forceCheck = false) {
+    function check() {
+      if (CustomizableUI.getPlacementOfWidget("search-container")) {
+        Services.prefs.setCharPref(prefName,
+                                   "general:5,suggestion:Infinity");
+      }
+    }
     let prefName = "browser.urlbar.matchBuckets";
     let pref = Services.prefs.getCharPref(prefName, "");
     if (!pref) {
@@ -2361,8 +2363,22 @@ BrowserGlue.prototype = {
       // not placed (the urlbar and search bar are unified), then leave the pref
       // cleared so that UnifiedComplete.js uses the default value (so that
       // search suggestions will come before history results).
-      if (CustomizableUI.getPlacementOfWidget("search-container")) {
-        Services.prefs.setCharPref(prefName, "general:5,suggestion:Infinity");
+      if (forceCheck) {
+        // This is the case when this is called by the test.
+        check();
+      } else {
+        // This is the normal, non-test case.  At this point the first window
+        // has not been set up yet, so use a CUI listener to get the placement
+        // when the nav-bar is first registered.
+        let listener = {
+          onAreaNodeRegistered(area, container) {
+            if (CustomizableUI.AREA_NAVBAR == area) {
+              check();
+              CustomizableUI.removeListener(listener);
+            }
+          },
+        };
+        CustomizableUI.addListener(listener);
       }
     }
     // Else, the pref has already been set.  Normally this pref does not exist.
@@ -2376,7 +2392,7 @@ BrowserGlue.prototype = {
   // ------------------------------
 
   sanitize: function BG_sanitize(aParentWindow) {
-    this._sanitizer.sanitize(aParentWindow);
+    Sanitizer.showUI(aParentWindow);
   },
 
   async ensurePlacesDefaultQueriesInitialized() {
@@ -2570,11 +2586,16 @@ BrowserGlue.prototype = {
         } else {
           title = bundle.GetStringFromName("tabArrivingNotification.title");
         }
-        // Use the page URL as the body. We strip the fragment and query to
-        // reduce size, and also format it the same way that the url bar would.
-        body = URIs[0].uri.replace(/[?#].*$/, "");
+        // Use the page URL as the body. We strip the fragment and query (after
+        // the `?` and `#` respectively) to reduce size, and also format it the
+        // same way that the url bar would.
+        body = URIs[0].uri.replace(/([?#]).*$/, "$1");
+        let wasTruncated = body.length < URIs[0].uri.length;
         if (win.gURLBar) {
           body = win.gURLBar.trimValue(body);
+        }
+        if (wasTruncated) {
+          body = bundle.formatStringFromName("singleTabArrivingWithTruncatedURL.body", [body], 1);
         }
       } else {
         title = bundle.GetStringFromName("multipleTabsArrivingNotification.title");
@@ -2836,6 +2857,32 @@ ContentPermissionPrompt.prototype = {
       }
 
       permissionPrompt.prompt();
+
+      let schemeHistogram = Services.telemetry.getKeyedHistogramById("PERMISSION_REQUEST_ORIGIN_SCHEME");
+      let scheme = 0;
+      // URI is null for system principals.
+      if (request.principal.URI) {
+        switch (request.principal.URI.scheme) {
+          case "http":
+            scheme = 1;
+            break;
+          case "https":
+            scheme = 2;
+            break;
+        }
+      }
+      schemeHistogram.add(type, scheme);
+
+      // request.element should be the browser element in e10s.
+      if (request.element && request.element.contentPrincipal) {
+        let thirdPartyHistogram = Services.telemetry.getKeyedHistogramById("PERMISSION_REQUEST_THIRD_PARTY_ORIGIN");
+        let isThirdParty = request.principal.origin != request.element.contentPrincipal.origin;
+        thirdPartyHistogram.add(type, isThirdParty);
+      }
+
+      let userInputHistogram = Services.telemetry.getKeyedHistogramById("PERMISSION_REQUEST_HANDLING_USER_INPUT");
+      userInputHistogram.add(type, request.isHandlingUserInput);
+
     } catch (ex) {
       Cu.reportError(ex);
       request.cancel();

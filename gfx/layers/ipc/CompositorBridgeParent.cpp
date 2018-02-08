@@ -542,7 +542,7 @@ mozilla::ipc::IPCResult
 CompositorBridgeParent::RecvFlushRendering()
 {
   if (mOptions.UseWebRender()) {
-    mWrBridge->FlushRendering(/* aIsSync */ true);
+    mWrBridge->FlushRendering();
     return IPC_OK();
   }
 
@@ -557,7 +557,7 @@ mozilla::ipc::IPCResult
 CompositorBridgeParent::RecvFlushRenderingAsync()
 {
   if (mOptions.UseWebRender()) {
-    mWrBridge->FlushRendering(/* aIsSync */ false);
+    mWrBridge->FlushRenderingAsync();
     return IPC_OK();
   }
 
@@ -745,7 +745,7 @@ CompositorBridgeParent::ResumeComposition()
   mPaused = false;
 
   Invalidate();
-  mCompositorScheduler->ResumeComposition();
+  mCompositorScheduler->ForceComposeToTarget(nullptr, nullptr);
 
   // if anyone's waiting to make sure that composition really got resumed, tell them
   lock.NotifyAll();
@@ -951,15 +951,6 @@ CompositorBridgeParent::CompositeToTarget(DrawTarget* aTarget, const gfx::IntRec
   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread(),
              "Composite can only be called on the compositor thread");
   TimeStamp start = TimeStamp::Now();
-
-#ifdef COMPOSITOR_PERFORMANCE_WARNING
-  TimeDuration scheduleDelta = TimeStamp::Now() - mCompositorScheduler->GetExpectedComposeStartTime();
-  if (scheduleDelta > TimeDuration::FromMilliseconds(2) ||
-      scheduleDelta < TimeDuration::FromMilliseconds(-2)) {
-    printf_stderr("Compositor: Compose starting off schedule by %4.1f ms\n",
-                  scheduleDelta.ToMilliseconds());
-  }
-#endif
 
   if (!CanComposite()) {
     TimeStamp end = TimeStamp::Now();
@@ -1288,12 +1279,19 @@ bool
 CompositorBridgeParent::SetTestSampleTime(const uint64_t& aId,
                                           const TimeStamp& aTime)
 {
+  MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+
   if (aTime.IsNull()) {
     return false;
   }
 
   mIsTesting = true;
   mTestTime = aTime;
+
+  if (mWrBridge) {
+    mWrBridge->FlushRendering();
+    return true;
+  }
 
   bool testComposite = mCompositionManager &&
                        mCompositorScheduler->NeedsComposite();
@@ -1483,6 +1481,19 @@ CompositorBridgeParent::NewCompositor(const nsTArray<LayersBackend>& aBackendHin
 #endif
     }
     nsCString failureReason;
+
+    // Some software GPU emulation implementations will happily try to create
+    // unreasonably big surfaces and then fail in awful ways.
+    // Let's at least limit this to the default max texture size we use for content,
+    // anything larger than that will fail to render on the content side anyway.
+    // We can revisit this value and make it even tighter if need be.
+    const int max_fb_size = 32767;
+    const LayoutDeviceIntSize size = mWidget->GetClientSize();
+    if (size.width > max_fb_size || size.height > max_fb_size) {
+      failureReason = "FEATURE_FAILURE_MAX_FRAMEBUFFER_SIZE";
+      return nullptr;
+    }
+
     MOZ_ASSERT(!gfxVars::UseWebRender() || aBackendHints[i] == LayersBackend::LAYERS_BASIC);
     if (compositor && compositor->Initialize(&failureReason)) {
       if (failureReason.IsEmpty()){

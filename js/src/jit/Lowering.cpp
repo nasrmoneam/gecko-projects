@@ -1168,6 +1168,33 @@ LIRGenerator::visitCompare(MCompare* comp)
 }
 
 void
+LIRGenerator::visitSameValue(MSameValue* ins)
+{
+    MDefinition* lhs = ins->lhs();
+    MDefinition* rhs = ins->rhs();
+
+    if (lhs->type() == MIRType::Double && rhs->type() == MIRType::Double) {
+        auto* lir = new(alloc()) LSameValueD(useRegister(lhs), useRegister(rhs), tempDouble());
+        define(lir, ins);
+        return;
+    }
+
+    if (lhs->type() == MIRType::Value && rhs->type() == MIRType::Double) {
+        auto* lir = new(alloc()) LSameValueV(useBox(lhs), useRegister(rhs), tempDouble(),
+                                             tempDouble());
+        define(lir, ins);
+        return;
+    }
+
+    MOZ_ASSERT(lhs->type() == MIRType::Value);
+    MOZ_ASSERT(rhs->type() == MIRType::Value);
+
+    auto* lir = new(alloc()) LSameValueVM(useBoxAtStart(lhs), useBoxAtStart(rhs));
+    defineReturn(lir, ins);
+    assignSafepoint(lir, ins);
+}
+
+void
 LIRGenerator::lowerBitOp(JSOp op, MInstruction* ins)
 {
     MDefinition* lhs = ins->getOperand(0);
@@ -1971,7 +1998,7 @@ LIRGenerator::visitCharCodeAt(MCharCodeAt* ins)
     MOZ_ASSERT(str->type() == MIRType::String);
     MOZ_ASSERT(idx->type() == MIRType::Int32);
 
-    LCharCodeAt* lir = new(alloc()) LCharCodeAt(useRegister(str), useRegister(idx));
+    LCharCodeAt* lir = new(alloc()) LCharCodeAt(useRegister(str), useRegister(idx), temp());
     define(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -2181,14 +2208,14 @@ LIRGenerator::visitToFloat32(MToFloat32* convert)
 }
 
 void
-LIRGenerator::visitToInt32(MToInt32* convert)
+LIRGenerator::visitToNumberInt32(MToNumberInt32* convert)
 {
     MDefinition* opd = convert->input();
 
     switch (opd->type()) {
       case MIRType::Value:
       {
-        LValueToInt32* lir =
+        auto* lir =
             new(alloc()) LValueToInt32(useBox(opd), tempDouble(), temp(), LValueToInt32::NORMAL);
         assignSnapshot(lir, Bailout_NonPrimitiveInput);
         define(lir, convert);
@@ -2197,13 +2224,13 @@ LIRGenerator::visitToInt32(MToInt32* convert)
       }
 
       case MIRType::Null:
-        MOZ_ASSERT(convert->conversion() == MacroAssembler::IntConversion_Any);
+        MOZ_ASSERT(convert->conversion() == IntConversionInputKind::Any);
         define(new(alloc()) LInteger(0), convert);
         break;
 
       case MIRType::Boolean:
-        MOZ_ASSERT(convert->conversion() == MacroAssembler::IntConversion_Any ||
-                   convert->conversion() == MacroAssembler::IntConversion_NumbersOrBoolsOnly);
+        MOZ_ASSERT(convert->conversion() == IntConversionInputKind::Any ||
+                   convert->conversion() == IntConversionInputKind::NumbersOrBoolsOnly);
         redefine(convert, opd);
         break;
 
@@ -3130,6 +3157,26 @@ LIRGenerator::visitBoundsCheck(MBoundsCheck* ins)
 }
 
 void
+LIRGenerator::visitSpectreMaskIndex(MSpectreMaskIndex* ins)
+{
+    MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+    MOZ_ASSERT(ins->length()->type() == MIRType::Int32);
+    MOZ_ASSERT(ins->type() == MIRType::Int32);
+
+    // On 64-bit platforms, the length must be in a register, so
+    // MacroAssembler::maskIndex can emit more efficient code.
+#if JS_BITS_PER_WORD == 64
+    LAllocation lengthUse = useRegister(ins->length());
+#else
+    LAllocation lengthUse = useAny(ins->length());
+#endif
+
+    LSpectreMaskIndex* lir =
+        new(alloc()) LSpectreMaskIndex(useRegisterOrConstant(ins->index()), lengthUse);
+    define(lir, ins);
+}
+
+void
 LIRGenerator::visitBoundsCheckLower(MBoundsCheckLower* ins)
 {
     MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
@@ -3204,7 +3251,7 @@ LIRGenerator::visitLoadElementHole(MLoadElementHole* ins)
     MOZ_ASSERT(ins->type() == MIRType::Value);
 
     LLoadElementHole* lir = new(alloc()) LLoadElementHole(useRegister(ins->elements()),
-                                                          useRegisterOrConstant(ins->index()),
+                                                          useRegister(ins->index()),
                                                           useRegister(ins->initLength()));
     if (ins->needsNegativeIntCheck())
         assignSnapshot(lir, Bailout_NegativeIndex);
@@ -3634,9 +3681,10 @@ LIRGenerator::visitLoadTypedArrayElementHole(MLoadTypedArrayElementHole* ins)
     MOZ_ASSERT(ins->type() == MIRType::Value);
 
     const LUse object = useRegister(ins->object());
-    const LAllocation index = useRegisterOrConstant(ins->index());
+    const LAllocation index = useRegister(ins->index());
 
-    LLoadTypedArrayElementHole* lir = new(alloc()) LLoadTypedArrayElementHole(object, index);
+    LLoadTypedArrayElementHole* lir = new(alloc()) LLoadTypedArrayElementHole(object, index,
+                                                                              temp());
     if (ins->fallible())
         assignSnapshot(lir, Bailout_Overflow);
     defineBox(lir, ins);
@@ -4314,7 +4362,7 @@ LIRGenerator::visitInstanceOf(MInstanceOf* ins)
 }
 
 void
-LIRGenerator::visitCallInstanceOf(MCallInstanceOf* ins)
+LIRGenerator::visitInstanceOfCache(MInstanceOfCache* ins)
 {
     MDefinition* lhs = ins->lhs();
     MDefinition* rhs = ins->rhs();
@@ -4322,9 +4370,9 @@ LIRGenerator::visitCallInstanceOf(MCallInstanceOf* ins)
     MOZ_ASSERT(lhs->type() == MIRType::Value);
     MOZ_ASSERT(rhs->type() == MIRType::Object);
 
-    LCallInstanceOf* lir = new(alloc()) LCallInstanceOf(useBoxAtStart(lhs),
-                                                        useRegisterAtStart(rhs));
-    defineReturn(lir, ins);
+    LInstanceOfCache* lir = new(alloc()) LInstanceOfCache(useBox(lhs),
+                                                          useRegister(rhs));
+    define(lir, ins);
     assignSafepoint(lir, ins);
 }
 

@@ -19,16 +19,16 @@ use std::fmt::{self, Write};
 use std::hash::{Hash, Hasher};
 #[cfg(feature = "servo")]
 use std::slice;
-use style_traits::{ToCss, ParseError};
+use style_traits::{CssWriter, ParseError, ToCss};
 use values::CSSFloat;
 use values::animated::{ToAnimatedValue, ToAnimatedZero};
-use values::computed::{Context, NonNegativeLength, ToComputedValue};
-use values::generics::{FontSettings, FontSettingTagInt};
+use values::computed::{Context, NonNegativeLength, ToComputedValue, Integer, Number};
+use values::generics::font::{FontSettings, FeatureTagValue, VariationValue};
 use values::specified::font as specified;
 use values::specified::length::{FontBaseSize, NoCalcLength};
 
 pub use values::computed::Length as MozScriptMinSize;
-pub use values::specified::font::{XTextZoom, XLang, MozScriptSizeMultiplier, FontSynthesis, FontVariantSettings};
+pub use values::specified::font::{XTextZoom, XLang, MozScriptSizeMultiplier, FontSynthesis};
 
 /// As of CSS Fonts Module Level 3, only the following values are
 /// valid: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
@@ -201,7 +201,7 @@ impl FontSize {
 }
 
 impl ToCss for FontSize {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result where W: fmt::Write {
         self.size.to_css(dest)
     }
 }
@@ -257,7 +257,7 @@ impl MallocSizeOf for FontFamily {
 }
 
 impl ToCss for FontFamily {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result where W: fmt::Write {
         let mut iter = self.0.iter();
         iter.next().unwrap().to_css(dest)?;
         for family in iter {
@@ -279,7 +279,7 @@ pub struct FamilyName {
 }
 
 impl ToCss for FamilyName {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result where W: fmt::Write {
         match self.syntax {
             FamilyNameSyntax::Quoted => {
                 dest.write_char('"')?;
@@ -488,7 +488,7 @@ impl SingleFontFamily {
 }
 
 impl ToCss for SingleFontFamily {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result where W: fmt::Write {
         match *self {
             SingleFontFamily::FamilyName(ref name) => name.to_css(dest),
 
@@ -712,8 +712,11 @@ pub type FontVariantLigatures = specified::VariantLigatures;
 /// Use VariantNumeric as computed type of FontVariantNumeric
 pub type FontVariantNumeric = specified::VariantNumeric;
 
-/// Use FontSettings as computed type of FontFeatureSettings
-pub type FontFeatureSettings = FontSettings<FontSettingTagInt>;
+/// Use FontSettings as computed type of FontFeatureSettings.
+pub type FontFeatureSettings = FontSettings<FeatureTagValue<Integer>>;
+
+/// The computed value for font-variation-settings.
+pub type FontVariationSettings = FontSettings<VariationValue<Number>>;
 
 /// font-language-override can only have a single three-letter
 /// OpenType "language system" tag, so we should be able to compute
@@ -731,7 +734,7 @@ impl FontLanguageOverride {
 }
 
 impl ToCss for FontLanguageOverride {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result where W: fmt::Write {
         use std::str;
 
         if self.0 == 0 {

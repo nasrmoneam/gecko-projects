@@ -50,8 +50,6 @@
 namespace mozilla {
 namespace dom {
 
-using namespace workers;
-
 static LazyLogModule gEventSourceLog("EventSource");
 
 #define SPACE_CHAR           (char16_t)0x0020
@@ -1036,6 +1034,7 @@ EventSourceImpl::InitChannelAndRequestEventSource()
                        doc,
                        securityFlags,
                        nsIContentPolicy::TYPE_INTERNAL_EVENTSOURCE,
+                       nullptr,          // aPerformanceStorage
                        loadGroup,
                        nullptr,          // aCallbacks
                        loadFlags);       // aLoadFlags
@@ -1046,6 +1045,7 @@ EventSourceImpl::InitChannelAndRequestEventSource()
                        mPrincipal,
                        securityFlags,
                        nsIContentPolicy::TYPE_INTERNAL_EVENTSOURCE,
+                       nullptr,          // aPerformanceStorage
                        nullptr,          // loadGroup
                        nullptr,          // aCallbacks
                        loadFlags);       // aLoadFlags
@@ -1789,9 +1789,9 @@ public:
   {
   }
 
-  bool Notify(Status aStatus) override
+  bool Notify(WorkerStatus aStatus) override
   {
-    MOZ_ASSERT(aStatus > workers::Running);
+    MOZ_ASSERT(aStatus > Running);
     if (aStatus >= Canceling) {
       mEventSourceImpl->Close();
     }

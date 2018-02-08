@@ -1574,6 +1574,17 @@
         ]]></body>
       </method>
 
+      <method name="getTabSharingState">
+        <parameter name="aTab"/>
+        <body><![CDATA[
+          // Normalize the state object for consumers (ie.extensions).
+          let state = Object.assign({}, aTab._sharingState);
+          // ensure bool if undefined
+          state.camera = !!state.camera;
+          state.microphone = !!state.microphone;
+          return state;
+        ]]></body>
+      </method>
 
       <!-- TODO: remove after 57, once we know add-ons can no longer use it. -->
       <method name="setTabTitleLoading">
@@ -2556,6 +2567,13 @@
             this._tabListeners.delete(tab);
             this._tabFilters.delete(tab);
 
+            // Reset the findbar and remove it if it is attached to the tab.
+            if (tab._findBar) {
+              tab._findBar.close(true);
+              tab._findBar.remove();
+              delete tab._findBar;
+            }
+
             aBrowser.destroy();
 
             let notificationbox = this.getNotificationBox(aBrowser);
@@ -2854,7 +2872,7 @@
             if (!usingPreloadedContent && (!uriIsAboutBlank || aDisallowInheritPrincipal)) {
               // pretend the user typed this so it'll be available till
               // the document successfully loads
-              if (aURI && gInitialPages.indexOf(aURI) == -1)
+              if (aURI && !gInitialPages.includes(aURI))
                 b.userTypedValue = aURI;
 
               let flags = Ci.nsIWebNavigation.LOAD_FLAGS_NONE;
@@ -3465,14 +3483,14 @@
             let tab = aTab;
             do {
               tab = tab.nextSibling;
-            } while (tab && remainingTabs.indexOf(tab) == -1);
+            } while (tab && !remainingTabs.includes(tab));
 
             if (!tab) {
               tab = aTab;
 
               do {
                 tab = tab.previousSibling;
-              } while (tab && remainingTabs.indexOf(tab) == -1);
+              } while (tab && !remainingTabs.includes(tab));
             }
 
             return tab;
@@ -3847,7 +3865,7 @@
         <body>
         <![CDATA[
           for (let tab of this.tabs) {
-            if (aTabs.indexOf(tab) == -1)
+            if (!aTabs.includes(tab))
               this.hideTab(tab);
             else
               this.showTab(tab);
@@ -3883,7 +3901,7 @@
         <body>
         <![CDATA[
           if (!aTab.hidden && !aTab.pinned && !aTab.selected &&
-              !aTab.closing) {
+              !aTab.closing && !aTab._sharingState) {
             aTab.setAttribute("hidden", "true");
             this._visibleTabs = null; // invalidate cache
 
@@ -5903,8 +5921,7 @@
       <field name="_tabMinWidthLimit">50</field>
       <property name="tabMinWidth">
         <setter><![CDATA[
-          let root = document.documentElement;
-          root.style.setProperty("--tab-min-width", val + "px");
+          this.tabContainer.style.setProperty("--tab-min-width", val + "px");
           return val;
         ]]></setter>
       </property>
@@ -5959,6 +5976,8 @@
 
           if (Services.prefs.getBoolPref("browser.display.use_system_colors"))
             this.style.backgroundColor = "-moz-default-background-color";
+          else if (Services.prefs.getIntPref("browser.display.document_color_use") == 2)
+            this.style.backgroundColor = Services.prefs.getCharPref("browser.display.background_color");
 
           let messageManager = window.getGroupMessageManager("browsers");
 
@@ -7829,8 +7848,6 @@
           else
             this.removeAttribute("visuallyselected");
           this.parentNode.tabbrowser._tabAttrModified(this, ["visuallyselected"]);
-
-          this._setPositionAttributes(val);
 
           return val;
           ]]>

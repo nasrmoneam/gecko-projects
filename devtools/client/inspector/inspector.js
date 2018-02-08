@@ -807,7 +807,7 @@ Inspector.prototype = {
             panel: () => {
               const AnimationInspector =
                 this.browserRequire("devtools/client/inspector/animation/animation");
-              this.animationinspector = new AnimationInspector(this);
+              this.animationinspector = new AnimationInspector(this, this.panelWin);
               return this.animationinspector.provider;
             }
           },
@@ -1139,8 +1139,8 @@ Inspector.prototype = {
            selection.isElementNode() &&
            !selection.isPseudoElementNode() &&
            !selection.isAnonymousNode() &&
-           invalidTagNames.indexOf(
-            selection.nodeFront.nodeName.toLowerCase()) === -1;
+           !invalidTagNames.includes(
+            selection.nodeFront.nodeName.toLowerCase());
   },
 
   /**

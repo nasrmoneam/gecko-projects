@@ -10,6 +10,10 @@
 #include "nsDisplayList.h"
 #include "mozilla/Maybe.h"
 
+namespace mozilla {
+class DisplayListChecker;
+} // namespace mozilla
+
 struct RetainedDisplayListBuilder {
   RetainedDisplayListBuilder(nsIFrame* aReferenceFrame,
                              nsDisplayListBuilderMode aMode,
@@ -25,7 +29,8 @@ struct RetainedDisplayListBuilder {
 
   nsDisplayList* List() { return &mList; }
 
-  bool AttemptPartialUpdate(nscolor aBackstop);
+  bool AttemptPartialUpdate(nscolor aBackstop,
+                            mozilla::DisplayListChecker* aChecker);
 
   /**
    * Iterates through the display list builder reference frame document and
@@ -33,7 +38,7 @@ struct RetainedDisplayListBuilder {
    * Also clears the frame properties set by RetainedDisplayListBuilder for all
    * the frames in the modified frame lists.
    */
-  void ClearModifiedFrameProps();
+  void ClearFramesWithProps();
 
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(Cached, RetainedDisplayListBuilder)
 
@@ -48,7 +53,7 @@ private:
   bool ComputeRebuildRegion(nsTArray<nsIFrame*>& aModifiedFrames,
                             nsRect* aOutDirty,
                             AnimatedGeometryRoot** aOutModifiedAGR,
-                            nsTArray<nsIFrame*>* aOutFramesWithProps);
+                            nsTArray<nsIFrame*>& aOutFramesWithProps);
 
   void IncrementSubDocPresShellPaintCount(nsDisplayItem* aItem);
 

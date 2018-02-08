@@ -4,10 +4,10 @@
 "use strict";
 
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.importGlobalProperties(["fetch"]);
 
-XPCOMUtils.defineLazyModuleGetter(this, "Services",
+ChromeUtils.defineModuleGetter(this, "Services",
   "resource://gre/modules/Services.jsm");
 
 const ACTIVITY_STREAM_ENABLED_PREF = "browser.newtabpage.activity-stream.enabled";
@@ -146,9 +146,13 @@ function onBrowserReady() {
     if (rows <= 0) {
       Services.prefs.setBoolPref("browser.newtabpage.activity-stream.showTopSites", false);
     } else {
-      // Assume we want a full row (6 sites per row)
-      Services.prefs.setIntPref("browser.newtabpage.activity-stream.topSitesCount", rows * 6);
+      Services.prefs.setIntPref("browser.newtabpage.activity-stream.topSitesRows", rows);
     }
+  });
+
+  // Old activity stream topSitesCount pref showed 6 per row
+  migratePref("browser.newtabpage.activity-stream.topSitesCount", count => {
+    Services.prefs.setIntPref("browser.newtabpage.activity-stream.topSitesRows", Math.ceil(count / 6));
   });
 }
 

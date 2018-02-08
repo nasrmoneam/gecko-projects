@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from __future__ import absolute_import
+
 import socket
 import time
 
@@ -46,7 +48,7 @@ class TestMarionette(MarionetteTestCase):
             self.assertRaises(socket.timeout, marionette.raise_for_port, timeout=1.0)
 
             self.marionette._send_message("acceptConnections", {"value": True})
-            marionette.raise_for_port(timeout=1.0)
+            marionette.raise_for_port(timeout=10.0)
 
         finally:
             self.marionette._send_message("acceptConnections", {"value": True})
