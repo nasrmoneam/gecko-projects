@@ -147,10 +147,12 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
         "host/bin/mar",
         "host/bin/mbsdiff",
     ],
-    'linux64-asan-reporter-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US + [
-        "host/bin/mar",
-        "host/bin/mbsdiff",
-    ],
+    'linux64-asan-reporter-nightly':
+        filter(lambda a: a != 'target.crashreporter-symbols.zip',
+               _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US + [
+                    "host/bin/mar",
+                    "host/bin/mbsdiff",
+                ]),
     'linux64-source': [
     ],
     'linux64-devedition-source': [
