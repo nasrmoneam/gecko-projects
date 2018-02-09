@@ -25,11 +25,9 @@
 
 "use strict";
 
-const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
-
-var { XPCOMUtils } = Cu.import("resource://gre/modules/XPCOMUtils.jsm", {});
-var { NetUtil } = Cu.import("resource://gre/modules/NetUtil.jsm", {});
-var { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
+var { XPCOMUtils } = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm", {});
+var { NetUtil } = ChromeUtils.import("resource://gre/modules/NetUtil.jsm", {});
+var { require } = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 
 var { gDevTools } = require("devtools/client/framework/devtools");
 var Services = require("Services");

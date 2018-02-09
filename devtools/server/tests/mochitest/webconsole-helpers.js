@@ -1,9 +1,7 @@
 /* exported attachURL, evaluateJS */
 "use strict";
 
-var Cu = Components.utils;
-
-const {require} = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const {require} = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 const {DebuggerClient} = require("devtools/shared/client/debugger-client");
 const {DebuggerServer} = require("devtools/server/main");
 

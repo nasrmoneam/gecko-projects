@@ -5,8 +5,7 @@
 /* eslint-env browser */
 /* global addMessageListener, sendAsyncMessage, content */
 "use strict";
-var {classes: Cc, interfaces: Ci, utils: Cu} = Components;
-const {require, loader} = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const {require, loader} = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 const { Task } = require("devtools/shared/task");
 
 loader.lazyGetter(this, "nsIProfilerModule", () => {

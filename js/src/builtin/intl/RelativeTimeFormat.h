@@ -58,8 +58,9 @@ intl_RelativeTimeFormat_availableLocales(JSContext* cx, unsigned argc, JS::Value
  *
  * t should be a number representing a number to be formatted.
  * unit should be "second", "minute", "hour", "day", "week", "month", "quarter", or "year".
+ * numeric should be "always" or "auto".
  *
- * Usage: formatted = intl_FormatRelativeTime(relativeTimeFormat, t, unit)
+ * Usage: formatted = intl_FormatRelativeTime(relativeTimeFormat, t, unit, numeric)
  */
 extern MOZ_MUST_USE bool
 intl_FormatRelativeTime(JSContext* cx, unsigned argc, JS::Value* vp);

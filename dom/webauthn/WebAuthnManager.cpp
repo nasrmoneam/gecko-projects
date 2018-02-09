@@ -195,7 +195,7 @@ WebAuthnManager::~WebAuthnManager()
 }
 
 already_AddRefed<Promise>
-WebAuthnManager::MakeCredential(const MakePublicKeyCredentialOptions& aOptions,
+WebAuthnManager::MakeCredential(const PublicKeyCredentialCreationOptions& aOptions,
                                 const Optional<OwningNonNull<AbortSignal>>& aSignal)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -536,13 +536,6 @@ WebAuthnManager::GetAssertion(const PublicKeyCredentialRequestOptions& aOptions,
   srv = HashCString(hashService, clientDataJSON, clientDataHash);
   if (NS_WARN_IF(NS_FAILED(srv))) {
     promise->MaybeReject(NS_ERROR_DOM_SECURITY_ERR);
-    return promise.forget();
-  }
-
-  // Note: we only support U2F-style authentication for now, so we effectively
-  // require an AllowList.
-  if (aOptions.mAllowCredentials.Length() < 1) {
-    promise->MaybeReject(NS_ERROR_DOM_NOT_ALLOWED_ERR);
     return promise.forget();
   }
 

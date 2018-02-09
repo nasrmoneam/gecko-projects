@@ -5,11 +5,6 @@
 
 /* eslint-env mozilla/browser-window */
 
-var Ci = Components.interfaces;
-var Cu = Components.utils;
-var Cc = Components.classes;
-var Cr = Components.results;
-
 ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 ChromeUtils.import("resource://gre/modules/Services.jsm");
 ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
@@ -50,6 +45,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ReaderParent: "resource:///modules/ReaderParent.jsm",
   RecentWindow: "resource:///modules/RecentWindow.jsm",
   SafeBrowsing: "resource://gre/modules/SafeBrowsing.jsm",
+  Sanitizer: "resource:///modules/Sanitizer.jsm",
   SessionStore: "resource:///modules/sessionstore/SessionStore.jsm",
   SchedulePressure: "resource:///modules/SchedulePressure.jsm",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.jsm",
@@ -1250,6 +1246,12 @@ var gBrowserInit = {
     gBrowser.updateBrowserRemoteness(initBrowser, isRemote, {
       remoteType, sameProcessAsFrameLoader
     });
+
+    gUIDensity.init();
+
+    if (AppConstants.CAN_DRAW_IN_TITLEBAR) {
+      gDragSpaceObserver.init();
+    }
   },
 
   onLoad() {
@@ -1303,12 +1305,6 @@ var gBrowserInit = {
     // restore tabs into windows AFTER important parts like gMultiProcessBrowser
     // have been initialized.
     Services.obs.notifyObservers(window, "browser-window-before-show");
-
-    gUIDensity.init();
-
-    if (AppConstants.CAN_DRAW_IN_TITLEBAR) {
-      gDragSpaceObserver.init();
-    }
 
     if (!window.toolbar.visible) {
       // adjust browser UI for popups
@@ -1771,6 +1767,14 @@ var gBrowserInit = {
   },
 
   onUnload() {
+    gUIDensity.uninit();
+
+    if (AppConstants.CAN_DRAW_IN_TITLEBAR) {
+      gDragSpaceObserver.uninit();
+    }
+
+    TabsInTitlebar.uninit();
+
     // In certain scenarios it's possible for unload to be fired before onload,
     // (e.g. if the window is being closed after browser.js loads but before the
     // load completes). In that case, there's nothing to do here.
@@ -1794,12 +1798,6 @@ var gBrowserInit = {
 
     Services.obs.removeObserver(gPluginHandler.NPAPIPluginCrashed, "plugin-crashed");
 
-    gUIDensity.uninit();
-
-    if (AppConstants.CAN_DRAW_IN_TITLEBAR) {
-      gDragSpaceObserver.uninit();
-    }
-
     try {
       gBrowser.removeProgressListener(window.XULBrowserWindow);
       gBrowser.removeTabsProgressListener(window.TabsProgressListener);
@@ -1809,8 +1807,6 @@ var gBrowserInit = {
     PlacesToolbarHelper.uninit();
 
     BookmarkingUI.uninit();
-
-    TabsInTitlebar.uninit();
 
     ToolbarIconColor.uninit();
 

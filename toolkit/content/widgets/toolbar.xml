@@ -15,15 +15,7 @@
     </resources>
   </binding>
 
-  <binding id="toolbox" extends="chrome://global/content/bindings/toolbar.xml#toolbar-base">
-    <implementation>
-      <field name="palette">
-        null
-      </field>
-    </implementation>
-  </binding>
-
-  <binding id="toolbar" role="xul:toolbar"
+  <binding id="toolbar"
            extends="chrome://global/content/bindings/toolbar.xml#toolbar-base" />
 
   <binding id="toolbar-menubar-autohide"
@@ -144,7 +136,7 @@
     </implementation>
   </binding>
 
-  <binding id="menubar" role="xul:menubar"
+  <binding id="menubar"
            extends="chrome://global/content/bindings/toolbar.xml#toolbar-base" display="xul:menubar">
     <implementation>
        <field name="_active">false</field>
@@ -189,7 +181,7 @@
     </handlers>
   </binding>
 
-  <binding id="toolbardecoration" role="xul:toolbarseparator" extends="chrome://global/content/bindings/toolbar.xml#toolbar-base">
+  <binding id="toolbardecoration" extends="chrome://global/content/bindings/toolbar.xml#toolbar-base">
   </binding>
 
   <binding id="toolbarpaletteitem" extends="chrome://global/content/bindings/toolbar.xml#toolbar-base" display="xul:button">

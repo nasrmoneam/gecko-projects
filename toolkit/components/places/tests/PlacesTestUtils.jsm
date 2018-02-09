@@ -4,8 +4,6 @@ this.EXPORTED_SYMBOLS = [
   "PlacesTestUtils",
 ];
 
-const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
-
 Cu.importGlobalProperties(["URL"]);
 
 ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -130,19 +128,6 @@ this.PlacesTestUtils = Object.freeze({
       }));
     }
     await Promise.all(faviconPromises);
-  },
-
-  /**
-   * Clear all history.
-   *
-   * @return {Promise}
-   * @resolves When history was cleared successfully.
-   * @rejects JavaScript exception.
-   *
-   * @deprecated New consumers should directly use PlacesUtils.history.clear().
-   */
-  clearHistory() {
-    return PlacesUtils.history.clear();
   },
 
   /**

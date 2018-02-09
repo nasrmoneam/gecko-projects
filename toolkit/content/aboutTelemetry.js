@@ -4,10 +4,6 @@
 
 "use strict";
 
-var Ci = Components.interfaces;
-var Cc = Components.classes;
-var Cu = Components.utils;
-
 ChromeUtils.import("resource://gre/modules/Services.jsm");
 ChromeUtils.import("resource://gre/modules/TelemetryTimestamps.jsm");
 ChromeUtils.import("resource://gre/modules/TelemetryController.jsm");
@@ -237,7 +233,7 @@ var Settings = {
   },
 
   convertStringToLink(string) {
-    return "<a href=\"\" class=\"change-data-choices-link\">" + string + "</a>";
+    return "<a href=\"#\" class=\"change-data-choices-link\">" + string + "</a>";
   },
 };
 

@@ -5844,6 +5844,14 @@ JS_AtomizeAndPinStringN(JSContext* cx, const char* s, size_t length)
 }
 
 JS_PUBLIC_API(JSString*)
+JS_NewLatin1String(JSContext* cx, JS::Latin1Char* chars, size_t length)
+{
+    AssertHeapIsIdle();
+    CHECK_REQUEST(cx);
+    return NewString<CanGC>(cx, chars, length);
+}
+
+JS_PUBLIC_API(JSString*)
 JS_NewUCString(JSContext* cx, char16_t* chars, size_t length)
 {
     AssertHeapIsIdle();
@@ -7247,6 +7255,9 @@ JS_SetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t v
         break;
       case JSJITCOMPILER_SPECTRE_INDEX_MASKING:
         jit::JitOptions.spectreIndexMasking = !!value;
+        break;
+      case JSJITCOMPILER_SPECTRE_STRING_MITIGATIONS:
+        jit::JitOptions.spectreStringMitigations = !!value;
         break;
       case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
         jit::JitOptions.asmJSAtomicsEnable = !!value;

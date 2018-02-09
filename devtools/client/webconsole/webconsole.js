@@ -11,8 +11,10 @@ const {Cc, Ci, Cu} = require("chrome");
 const {Utils: WebConsoleUtils, CONSOLE_WORKER_IDS} =
   require("devtools/client/webconsole/utils");
 const { getSourceNames } = require("devtools/client/shared/source-utils");
-const BrowserLoaderModule = {};
-Cu.import("resource://devtools/client/shared/browser-loader.js", BrowserLoaderModule);
+const ChromeUtils = require("ChromeUtils");
+// browser-loader.js is a JSM without .jsm file extension, so it has to be loaded
+// via ChromeUtils.import and not require() which would consider it as a CommonJS module
+const { BrowserLoader } = ChromeUtils.import("resource://devtools/client/shared/browser-loader.js", {});
 
 const promise = require("promise");
 const defer = require("devtools/shared/defer");
@@ -225,7 +227,7 @@ function WebConsoleFrame(webConsoleOwner) {
   this._outputTimerInitialized = false;
 
   let toolbox = gDevTools.getToolbox(this.owner.target);
-  let {require} = BrowserLoaderModule.BrowserLoader({
+  let {require} = BrowserLoader({
     window: this.window,
     useOnlyShared: true,
     // The toolbox isn't available for the browser console.
@@ -983,12 +985,9 @@ WebConsoleFrame.prototype = {
     let attribute = !WORKERTYPES_PREFKEYS.includes(prefKey)
                       ? "filter" : "workerType";
 
-    let xpath = ".//*[contains(@class, 'message') and " +
-      "@" + attribute + "='" + prefKey + "']";
-    let result = doc.evaluate(xpath, outputNode, null,
-      Ci.nsIDOMXPathResult.UNORDERED_NODE_SNAPSHOT_TYPE, null);
-    for (let i = 0; i < result.snapshotLength; i++) {
-      let node = result.snapshotItem(i);
+    let selector = "[" + attribute + "='" + prefKey + "'].message";
+    let result = outputNode.querySelectorAll(selector);
+    for (let node of result) {
       if (state) {
         node.classList.remove("filtered-by-type");
       } else {

@@ -5,8 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-var { classes: Cc, interfaces: Ci, utils: Cu } = Components;
-
 const DBG_STRINGS_URI = "devtools/client/locales/debugger.properties";
 const NEW_SOURCE_IGNORED_URLS = ["debugger eval code", "XStringBundle"];
 const NEW_SOURCE_DISPLAY_DELAY = 200; // ms
@@ -96,7 +94,7 @@ const FRAME_TYPE = {
   PUBLIC_CLIENT_EVAL: 3
 };
 
-const { BrowserLoader } = Cu.import("resource://devtools/client/shared/browser-loader.js", {});
+const { BrowserLoader } = ChromeUtils.import("resource://devtools/client/shared/browser-loader.js", {});
 const { require } = BrowserLoader({
   baseURI: "resource://devtools/client/debugger/",
   window,

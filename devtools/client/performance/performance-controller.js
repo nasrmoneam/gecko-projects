@@ -6,9 +6,8 @@
 /* globals window, document, PerformanceView, ToolbarView, RecordingsView, DetailsView */
 
 /* exported Cc, Ci, Cu, Cr, loader, Promise */
-var { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 var BrowserLoaderModule = {};
-Cu.import("resource://devtools/client/shared/browser-loader.js", BrowserLoaderModule);
+ChromeUtils.import("resource://devtools/client/shared/browser-loader.js", BrowserLoaderModule);
 var { loader, require } = BrowserLoaderModule.BrowserLoader({
   baseURI: "resource://devtools/client/performance/",
   window

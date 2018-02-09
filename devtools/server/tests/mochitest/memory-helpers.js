@@ -2,9 +2,7 @@
    waitForTime, waitUntil */
 "use strict";
 
-const Cu = Components.utils;
-
-const { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const { require } = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 const Services = require("Services");
 const { Task } = require("devtools/shared/task");
 const { DebuggerClient } = require("devtools/shared/client/debugger-client");

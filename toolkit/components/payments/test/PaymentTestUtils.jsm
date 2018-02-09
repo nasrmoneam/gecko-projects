@@ -2,8 +2,6 @@
 
 this.EXPORTED_SYMBOLS = ["PaymentTestUtils"];
 
-const { classes: Cc, interfaces: Ci, results: Cr, utils: Cu } = Components;
-
 this.PaymentTestUtils = {
   /**
    * Common content tasks functions to be used with ContentTask.spawn.
@@ -71,6 +69,14 @@ this.PaymentTestUtils = {
      */
     completePayment: () => {
       content.document.getElementById("pay").click();
+    },
+
+    setSecurityCode: ({securityCode}) => {
+      // Waive the xray to access the untrusted `securityCodeInput` property
+      let picker = Cu.waiveXrays(content.document.querySelector("payment-method-picker"));
+      // Unwaive to access the ChromeOnly `setUserInput` API.
+      // setUserInput dispatches changes events.
+      Cu.unwaiveXrays(picker.securityCodeInput).setUserInput(securityCode);
     },
   },
 

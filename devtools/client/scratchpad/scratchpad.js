@@ -14,10 +14,6 @@
 
 "use strict";
 
-var Cu = Components.utils;
-var Cc = Components.classes;
-var Ci = Components.interfaces;
-
 const SCRATCHPAD_CONTEXT_CONTENT = 1;
 const SCRATCHPAD_CONTEXT_BROWSER = 2;
 const BUTTON_POSITION_SAVE = 0;
@@ -43,7 +39,7 @@ const FALLBACK_CHARSET_LIST = "intl.fallbackCharsetList.ISO-8859-1";
 
 const VARIABLES_VIEW_URL = "chrome://devtools/content/shared/widgets/VariablesView.xul";
 
-const {require, loader} = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const {require, loader} = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 
 const Editor = require("devtools/client/sourceeditor/editor");
 const TargetFactory = require("devtools/client/framework/target").TargetFactory;

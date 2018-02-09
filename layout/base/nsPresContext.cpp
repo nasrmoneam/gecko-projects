@@ -194,7 +194,7 @@ nsPresContext::MakeColorPref(const nsString& aColor)
 bool
 nsPresContext::IsDOMPaintEventPending()
 {
-  if (mFireAfterPaintEvents) {
+  if (!mTransactions.IsEmpty()) {
     return true;
   }
   nsRootPresContext* drpc = GetRootPresContext();
@@ -203,7 +203,6 @@ nsPresContext::IsDOMPaintEventPending()
     // fired, we record an empty invalidation in case display list
     // invalidation doesn't invalidate anything further.
     NotifyInvalidation(drpc->mRefreshDriver->LastTransactionId() + 1, nsRect(0, 0, 0, 0));
-    NS_ASSERTION(mFireAfterPaintEvents, "Why aren't we planning to fire the event?");
     return true;
   }
   return false;
@@ -306,18 +305,15 @@ nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
     mPendingSysColorChanged(false),
     mPendingThemeChanged(false),
     mPendingUIResolutionChanged(false),
-    mPendingMediaFeatureValuesChanged(false),
     mPrefChangePendingNeedsReflow(false),
     mIsEmulatingMedia(false),
     mIsGlyph(false),
     mUsesRootEMUnits(false),
     mUsesExChUnits(false),
-    mPendingViewportChange(false),
     mCounterStylesDirty(true),
     mFontFeatureValuesDirty(true),
     mSuppressResizeReflow(false),
     mIsVisual(false),
-    mFireAfterPaintEvents(false),
     mIsChrome(false),
     mIsChromeOriginImage(false),
     mPaintFlashing(false),
@@ -741,7 +737,11 @@ nsPresContext::AppUnitsPerDevPixelChanged()
 
   if (HasCachedStyleData()) {
     // All cached style data must be recomputed.
-    MediaFeatureValuesChanged(eRestyle_ForceDescendants, NS_STYLE_HINT_REFLOW);
+    MediaFeatureValuesChanged({
+      eRestyle_ForceDescendants,
+      NS_STYLE_HINT_REFLOW,
+      MediaFeatureChangeReason::ResolutionChange
+    });
   }
 
   mCurAppUnitsPerDevPixel = AppUnitsPerDevPixel();
@@ -1412,8 +1412,11 @@ nsPresContext::UpdateEffectiveTextZoom()
   if (mDocument->IsStyledByServo() || HasCachedStyleData()) {
     // Media queries could have changed, since we changed the meaning
     // of 'em' units in them.
-    MediaFeatureValuesChanged(eRestyle_ForceDescendants,
-                              NS_STYLE_HINT_REFLOW);
+    MediaFeatureValuesChanged({
+      eRestyle_ForceDescendants,
+      NS_STYLE_HINT_REFLOW,
+      MediaFeatureChangeReason::ZoomChange
+    });
   }
 }
 
@@ -1461,7 +1464,7 @@ nsPresContext::SetOverrideDPPX(float aDPPX)
     mOverrideDPPX = aDPPX;
 
     if (HasCachedStyleData()) {
-      MediaFeatureValuesChanged(nsRestyleHint(0), nsChangeHint(0));
+      MediaFeatureValuesChanged({ MediaFeatureChangeReason::ResolutionChange });
     }
   }
 }
@@ -1920,7 +1923,11 @@ nsPresContext::RefreshSystemMetrics()
   // properly reflected in computed style data), system fonts (whose
   // changes are not), and -moz-appearance (whose changes likewise are
   // not), so we need to recascade for the first, and reflow for the rest.
-  MediaFeatureValuesChanged(eRestyle_ForceDescendants, NS_STYLE_HINT_REFLOW);
+  MediaFeatureValuesChanged({
+    eRestyle_ForceDescendants,
+    NS_STYLE_HINT_REFLOW,
+    MediaFeatureChangeReason::SystemMetricsChange,
+  });
 }
 
 void
@@ -2020,7 +2027,7 @@ nsPresContext::EmulateMedium(const nsAString& aMediaType)
 
   mMediaEmulated = NS_Atomize(mediaType);
   if (mMediaEmulated != previousMedium && mShell) {
-    MediaFeatureValuesChanged(nsRestyleHint(0), nsChangeHint(0));
+    MediaFeatureValuesChanged({ MediaFeatureChangeReason::MediumChange });
   }
 }
 
@@ -2029,7 +2036,7 @@ void nsPresContext::StopEmulatingMedium()
   nsAtom* previousMedium = Medium();
   mIsEmulatingMedia = false;
   if (Medium() != previousMedium) {
-    MediaFeatureValuesChanged(nsRestyleHint(0), nsChangeHint(0));
+    MediaFeatureValuesChanged({ MediaFeatureChangeReason::MediumChange });
   }
 }
 
@@ -2067,6 +2074,8 @@ nsPresContext::RebuildAllStyleData(nsChangeHint aExtraHint,
     return;
   }
 
+  // FIXME(emilio): Why is it safe to reset mUsesRootEMUnits / mUsesEXChUnits
+  // here if there's no restyle hint? That looks pretty bogus.
   mUsesRootEMUnits = false;
   mUsesExChUnits = false;
   if (mShell->StyleSet()->IsGecko()) {
@@ -2108,49 +2117,46 @@ struct MediaFeatureHints
 };
 
 static bool
-MediaFeatureValuesChangedAllDocumentsCallback(nsIDocument* aDocument, void* aHints)
+MediaFeatureValuesChangedAllDocumentsCallback(nsIDocument* aDocument, void* aChange)
 {
-  MediaFeatureHints* hints = static_cast<MediaFeatureHints*>(aHints);
+  auto* change = static_cast<const MediaFeatureChange*>(aChange);
   if (nsIPresShell* shell = aDocument->GetShell()) {
     if (nsPresContext* pc = shell->GetPresContext()) {
-      pc->MediaFeatureValuesChangedAllDocuments(hints->restyleHint,
-                                                hints->changeHint);
+      pc->MediaFeatureValuesChangedAllDocuments(*change);
     }
   }
   return true;
 }
 
 void
-nsPresContext::MediaFeatureValuesChangedAllDocuments(nsRestyleHint aRestyleHint,
-                                                     nsChangeHint aChangeHint)
+nsPresContext::MediaFeatureValuesChangedAllDocuments(
+    const MediaFeatureChange& aChange)
 {
-    MediaFeatureValuesChanged(aRestyleHint, aChangeHint);
-    MediaFeatureHints hints = {
-      aRestyleHint,
-      aChangeHint
-    };
-
-    mDocument->EnumerateSubDocuments(MediaFeatureValuesChangedAllDocumentsCallback,
-                                     &hints);
+    MediaFeatureValuesChanged(aChange);
+    mDocument->EnumerateSubDocuments(
+      MediaFeatureValuesChangedAllDocumentsCallback,
+      const_cast<MediaFeatureChange*>(&aChange));
 }
 
 void
-nsPresContext::MediaFeatureValuesChanged(nsRestyleHint aRestyleHint,
-                                         nsChangeHint aChangeHint)
+nsPresContext::FlushPendingMediaFeatureValuesChanged()
 {
-  mPendingMediaFeatureValuesChanged = false;
+  if (!mPendingMediaFeatureValuesChange) {
+    return;
+  }
+
+  MediaFeatureChange change = *mPendingMediaFeatureValuesChange;
+  mPendingMediaFeatureValuesChange.reset();
 
   // MediumFeaturesChanged updates the applied rules, so it always gets called.
   if (mShell) {
-    aRestyleHint |= mShell->
-      StyleSet()->MediumFeaturesChanged(mPendingViewportChange);
+    change.mRestyleHint |=
+      mShell->StyleSet()->MediumFeaturesChanged(change.mReason);
   }
 
-  if (aRestyleHint || aChangeHint) {
-    RebuildAllStyleData(aChangeHint, aRestyleHint);
+  if (change.mRestyleHint || change.mChangeHint) {
+    RebuildAllStyleData(change.mChangeHint, change.mRestyleHint);
   }
-
-  mPendingViewportChange = false;
 
   if (!mShell || !mShell->DidInitialize()) {
     return;
@@ -2172,51 +2178,24 @@ nsPresContext::MediaFeatureValuesChanged(nsRestyleHint aRestyleHint,
   // Note that we do this after the new style from media queries in
   // style sheets has been computed.
 
-  if (!mDocument->MediaQueryLists().isEmpty()) {
-    // We build a list of all the notifications we're going to send
-    // before we send any of them.
-
-    // Copy pointers to all the lists into a new array, in case one of our
-    // notifications modifies the list.
-    nsTArray<RefPtr<mozilla::dom::MediaQueryList>> localMediaQueryLists;
-    for (auto* mql : mDocument->MediaQueryLists()) {
-      localMediaQueryLists.AppendElement(mql);
-    }
-
-    // Now iterate our local array of the lists.
-    for (const auto& mql : localMediaQueryLists) {
-      nsAutoMicroTask mt;
-      mql->MaybeNotify();
-    }
+  if (mDocument->MediaQueryLists().isEmpty()) {
+    return;
   }
-}
 
-void
-nsPresContext::PostMediaFeatureValuesChangedEvent()
-{
-  // FIXME: We should probably replace this event with use of
-  // nsRefreshDriver::AddStyleFlushObserver (except the pres shell would
-  // need to track whether it's been added).
-  if (!mPendingMediaFeatureValuesChanged && mShell) {
-    nsCOMPtr<nsIRunnable> ev =
-      NewRunnableMethod("nsPresContext::HandleMediaFeatureValuesChangedEvent",
-                        this, &nsPresContext::HandleMediaFeatureValuesChangedEvent);
-    nsresult rv =
-      Document()->Dispatch(TaskCategory::Other, ev.forget());
-    if (NS_SUCCEEDED(rv)) {
-      mPendingMediaFeatureValuesChanged = true;
-      mShell->SetNeedStyleFlush();
-    }
+  // We build a list of all the notifications we're going to send
+  // before we send any of them.
+
+  // Copy pointers to all the lists into a new array, in case one of our
+  // notifications modifies the list.
+  nsTArray<RefPtr<mozilla::dom::MediaQueryList>> localMediaQueryLists;
+  for (auto* mql : mDocument->MediaQueryLists()) {
+    localMediaQueryLists.AppendElement(mql);
   }
-}
 
-void
-nsPresContext::HandleMediaFeatureValuesChangedEvent()
-{
-  // Null-check mShell in case the shell has been destroyed (and the
-  // event is the only thing holding the pres context alive).
-  if (mPendingMediaFeatureValuesChanged && mShell) {
-    MediaFeatureValuesChanged(nsRestyleHint(0));
+  // Now iterate our local array of the lists.
+  for (const auto& mql : localMediaQueryLists) {
+    nsAutoMicroTask mt;
+    mql->MaybeNotify();
   }
 }
 
@@ -2231,12 +2210,14 @@ NotifyTabSizeModeChanged(TabParent* aTab, void* aArg)
 void
 nsPresContext::SizeModeChanged(nsSizeMode aSizeMode)
 {
-  if (HasCachedStyleData()) {
-    nsContentUtils::CallOnAllRemoteChildren(mDocument->GetWindow(),
-                                            NotifyTabSizeModeChanged,
-                                            &aSizeMode);
-    MediaFeatureValuesChangedAllDocuments(nsRestyleHint(0));
+  if (!HasCachedStyleData()) {
+    return;
   }
+
+  nsContentUtils::CallOnAllRemoteChildren(mDocument->GetWindow(),
+                                          NotifyTabSizeModeChanged,
+                                          &aSizeMode);
+  MediaFeatureValuesChangedAllDocuments({ MediaFeatureChangeReason::SizeModeChange });
 }
 
 nsCompatibility
@@ -2613,6 +2594,17 @@ nsPresContext::NotifyInvalidation(uint64_t aTransactionId, const nsIntRect& aRec
   NotifyInvalidation(aTransactionId, rect);
 }
 
+nsPresContext::TransactionInvalidations*
+nsPresContext::GetInvalidations(uint64_t aTransactionId)
+{
+  for (TransactionInvalidations& t : mTransactions) {
+    if (t.mTransactionId == aTransactionId) {
+      return &t;
+    }
+  }
+  return nullptr;
+}
+
 void
 nsPresContext::NotifyInvalidation(uint64_t aTransactionId, const nsRect& aRect)
 {
@@ -2626,9 +2618,13 @@ nsPresContext::NotifyInvalidation(uint64_t aTransactionId, const nsRect& aRect)
 
   nsPresContext* pc;
   for (pc = this; pc; pc = pc->GetParentPresContext()) {
-    if (pc->mFireAfterPaintEvents)
+    TransactionInvalidations* transaction = pc->GetInvalidations(aTransactionId);
+    if (transaction) {
       break;
-    pc->mFireAfterPaintEvents = true;
+    } else {
+      transaction = pc->mTransactions.AppendElement();
+      transaction->mTransactionId = aTransactionId;
+    }
   }
   if (!pc) {
     nsRootPresContext* rpc = GetRootPresContext();
@@ -2637,18 +2633,8 @@ nsPresContext::NotifyInvalidation(uint64_t aTransactionId, const nsRect& aRect)
     }
   }
 
-  TransactionInvalidations* transaction = nullptr;
-  for (TransactionInvalidations& t : mTransactions) {
-    if (t.mTransactionId == aTransactionId) {
-      transaction = &t;
-      break;
-    }
-  }
-  if (!transaction) {
-    transaction = mTransactions.AppendElement();
-    transaction->mTransactionId = aTransactionId;
-  }
-
+  TransactionInvalidations* transaction = GetInvalidations(aTransactionId);
+  MOZ_ASSERT(transaction);
   transaction->mInvalidations.AppendElement(aRect);
 }
 
@@ -2700,7 +2686,6 @@ nsPresContext::ClearNotifySubDocInvalidationData(ContainerLayer* aContainer)
 struct NotifyDidPaintSubdocumentCallbackClosure {
   uint64_t mTransactionId;
   const mozilla::TimeStamp& mTimeStamp;
-  bool mNeedsAnotherDidPaintNotification;
 };
 /* static */ bool
 nsPresContext::NotifyDidPaintSubdocumentCallback(nsIDocument* aDocument, void* aData)
@@ -2713,9 +2698,6 @@ nsPresContext::NotifyDidPaintSubdocumentCallback(nsIDocument* aDocument, void* a
     if (pc) {
       pc->NotifyDidPaintForSubtree(closure->mTransactionId,
                                    closure->mTimeStamp);
-      if (pc->mFireAfterPaintEvents) {
-        closure->mNeedsAnotherDidPaintNotification = true;
-      }
     }
   }
   return true;
@@ -2760,12 +2742,12 @@ nsPresContext::NotifyDidPaintForSubtree(uint64_t aTransactionId,
   if (IsRoot()) {
     static_cast<nsRootPresContext*>(this)->CancelDidPaintTimers(aTransactionId);
 
-    if (!mFireAfterPaintEvents) {
+    if (mTransactions.IsEmpty()) {
       return;
     }
   }
 
-  if (!PresShell()->IsVisible() && !mFireAfterPaintEvents) {
+  if (!PresShell()->IsVisible() && mTransactions.IsEmpty()) {
     return;
   }
 
@@ -2779,11 +2761,13 @@ nsPresContext::NotifyDidPaintForSubtree(uint64_t aTransactionId,
   uint32_t i = 0;
   while (i < mTransactions.Length()) {
     if (mTransactions[i].mTransactionId <= aTransactionId) {
-      nsCOMPtr<nsIRunnable> ev =
-        new DelayedFireDOMPaintEvent(this, &mTransactions[i].mInvalidations,
-                                     mTransactions[i].mTransactionId, aTimeStamp);
-      nsContentUtils::AddScriptRunner(ev);
-      sent = true;
+      if (!mTransactions[i].mInvalidations.IsEmpty()) {
+        nsCOMPtr<nsIRunnable> ev =
+          new DelayedFireDOMPaintEvent(this, &mTransactions[i].mInvalidations,
+                                       mTransactions[i].mTransactionId, aTimeStamp);
+        nsContentUtils::AddScriptRunner(ev);
+        sent = true;
+      }
       mTransactions.RemoveElementAt(i);
     } else {
       i++;
@@ -2798,14 +2782,8 @@ nsPresContext::NotifyDidPaintForSubtree(uint64_t aTransactionId,
     nsContentUtils::AddScriptRunner(ev);
   }
 
-  NotifyDidPaintSubdocumentCallbackClosure closure = { aTransactionId, aTimeStamp, false };
+  NotifyDidPaintSubdocumentCallbackClosure closure = { aTransactionId, aTimeStamp };
   mDocument->EnumerateSubDocuments(nsPresContext::NotifyDidPaintSubdocumentCallback, &closure);
-
-  if (!closure.mNeedsAnotherDidPaintNotification &&
-      mTransactions.IsEmpty()) {
-    // Nothing more to do for the moment.
-    mFireAfterPaintEvents = false;
-  }
 }
 
 bool

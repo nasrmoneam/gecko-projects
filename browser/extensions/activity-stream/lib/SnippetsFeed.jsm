@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const {utils: Cu} = Components;
-
 ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {actionTypes: at, actionCreators: ac} = ChromeUtils.import("resource://activity-stream/common/Actions.jsm", {});
@@ -13,7 +11,7 @@ ChromeUtils.defineModuleGetter(this, "ShellService",
   "resource:///modules/ShellService.jsm");
 ChromeUtils.defineModuleGetter(this, "ProfileAge",
   "resource://gre/modules/ProfileAge.jsm");
-ChromeUtils.defineModuleGetter(this, "fxAccounts",
+ChromeUtils.defineModuleGetter(this, "FxAccounts",
   "resource://gre/modules/FxAccounts.jsm");
 
 // Url to fetch snippets, in the urlFormatter service format.
@@ -127,7 +125,7 @@ this.SnippetsFeed = class SnippetsFeed {
   }
 
   async showFirefoxAccounts(browser) {
-    const url = await fxAccounts.promiseAccountsSignUpURI("snippets");
+    const url = await FxAccounts.config.promiseSignUpURI("snippets");
     // We want to replace the current tab.
     browser.loadURI(url);
   }

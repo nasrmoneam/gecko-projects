@@ -12,8 +12,8 @@
 "use strict";
 
 window.onload = function () {
-  const { Constructor: CC, utils: Cu } = Components;
-  const { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
+  const CC = Components.Constructor;
+  const { require } = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
   const { Task } = require("devtools/shared/task");
   const WebSocketServer = require("devtools/server/websocket-server");
 

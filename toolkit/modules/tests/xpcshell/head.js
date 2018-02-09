@@ -1,4 +1,3 @@
-var { classes: Cc, interfaces: Ci, results: Cr, utils: Cu } = Components;
 ChromeUtils.import("resource://gre/modules/NewTabUtils.jsm");
 ChromeUtils.import("resource://gre/modules/Services.jsm");
 ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -34,7 +33,7 @@ function isVisitDateOK(timestampMS) {
 // a set up function to prep the activity stream provider
 function setUpActivityStreamTest() {
   return (async function() {
-    await PlacesTestUtils.clearHistory();
+    await PlacesUtils.history.clear();
     await PlacesUtils.bookmarks.eraseEverything();
     let faviconExpiredPromise = new Promise(resolve => {
       Services.obs.addObserver(resolve, "places-favicons-expired");

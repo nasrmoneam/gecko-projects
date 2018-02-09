@@ -1367,19 +1367,155 @@ MacroAssembler::compareStrings(JSOp op, Register left, Register right, Register 
 }
 
 void
-MacroAssembler::loadStringChars(Register str, Register dest)
+MacroAssembler::loadStringChars(Register str, Register dest, CharEncoding encoding)
 {
-    Label isInline, done;
-    branchTest32(Assembler::NonZero, Address(str, JSString::offsetOfFlags()),
-                 Imm32(JSString::INLINE_CHARS_BIT), &isInline);
+    MOZ_ASSERT(str != dest);
 
-    loadPtr(Address(str, JSString::offsetOfNonInlineChars()), dest);
-    jump(&done);
+    if (JitOptions.spectreStringMitigations) {
+        if (encoding == CharEncoding::Latin1) {
+            // If the string is a rope, zero the |str| register. The code below
+            // depends on str->flags so this should block speculative execution.
+            movePtr(ImmWord(0), dest);
+            test32MovePtr(Assembler::Zero,
+                          Address(str, JSString::offsetOfFlags()), Imm32(JSString::LINEAR_BIT),
+                          dest, str);
+        } else {
+            // If we're loading TwoByte chars, there's an additional risk:
+            // if the string has Latin1 chars, we could read out-of-bounds. To
+            // prevent this, we check both the Linear and Latin1 bits. We don't
+            // have a scratch register, so we use these flags also to block
+            // speculative execution, similar to the use of 0 above.
+            MOZ_ASSERT(encoding == CharEncoding::TwoByte);
+            static constexpr uint32_t Mask = JSString::LINEAR_BIT | JSString::LATIN1_CHARS_BIT;
+            static_assert(Mask < 1024,
+                          "Mask should be a small, near-null value to ensure we "
+                          "block speculative execution when it's used as string "
+                          "pointer");
+            move32(Imm32(Mask), dest);
+            and32(Address(str, JSString::offsetOfFlags()), dest);
+            cmp32MovePtr(Assembler::NotEqual, dest, Imm32(JSString::LINEAR_BIT),
+                         dest, str);
+        }
+    }
 
-    bind(&isInline);
+    // Load the inline chars.
     computeEffectiveAddress(Address(str, JSInlineString::offsetOfInlineStorage()), dest);
 
-    bind(&done);
+    // If it's not an inline string, load the non-inline chars. Use a
+    // conditional move to prevent speculative execution.
+    test32LoadPtr(Assembler::Zero,
+                  Address(str, JSString::offsetOfFlags()), Imm32(JSString::INLINE_CHARS_BIT),
+                  Address(str, JSString::offsetOfNonInlineChars()), dest);
+}
+
+void
+MacroAssembler::loadNonInlineStringChars(Register str, Register dest, CharEncoding encoding)
+{
+    MOZ_ASSERT(str != dest);
+
+    if (JitOptions.spectreStringMitigations) {
+        // If the string is a rope, has inline chars, or has a different
+        // character encoding, set str to a near-null value to prevent
+        // speculative execution below (when reading str->nonInlineChars).
+
+        static constexpr uint32_t Mask =
+            JSString::LINEAR_BIT |
+            JSString::INLINE_CHARS_BIT |
+            JSString::LATIN1_CHARS_BIT;
+        static_assert(Mask < 1024,
+                      "Mask should be a small, near-null value to ensure we "
+                      "block speculative execution when it's used as string "
+                      "pointer");
+
+        uint32_t expectedBits = JSString::LINEAR_BIT;
+        if (encoding == CharEncoding::Latin1)
+            expectedBits |= JSString::LATIN1_CHARS_BIT;
+
+        move32(Imm32(Mask), dest);
+        and32(Address(str, JSString::offsetOfFlags()), dest);
+
+        cmp32MovePtr(Assembler::NotEqual, dest, Imm32(expectedBits),
+                     dest, str);
+    }
+
+    loadPtr(Address(str, JSString::offsetOfNonInlineChars()), dest);
+}
+
+void
+MacroAssembler::storeNonInlineStringChars(Register chars, Register str)
+{
+    MOZ_ASSERT(chars != str);
+    storePtr(chars, Address(str, JSString::offsetOfNonInlineChars()));
+}
+
+void
+MacroAssembler::loadInlineStringCharsForStore(Register str, Register dest)
+{
+    computeEffectiveAddress(Address(str, JSInlineString::offsetOfInlineStorage()), dest);
+}
+
+void
+MacroAssembler::loadInlineStringChars(Register str, Register dest, CharEncoding encoding)
+{
+    MOZ_ASSERT(str != dest);
+
+    if (JitOptions.spectreStringMitigations) {
+        // Making this Spectre-safe is a bit complicated: using
+        // computeEffectiveAddress and then zeroing the output register if
+        // non-inline is not sufficient: when the index is very large, it would
+        // allow reading |nullptr + index|. Just fall back to loadStringChars
+        // for now.
+        loadStringChars(str, dest, encoding);
+    } else {
+        computeEffectiveAddress(Address(str, JSInlineString::offsetOfInlineStorage()), dest);
+    }
+}
+
+void
+MacroAssembler::loadRopeLeftChild(Register str, Register dest)
+{
+    MOZ_ASSERT(str != dest);
+
+    if (JitOptions.spectreStringMitigations) {
+        // Zero the output register if the input was not a rope.
+        movePtr(ImmWord(0), dest);
+        test32LoadPtr(Assembler::Zero,
+                      Address(str, JSString::offsetOfFlags()), Imm32(JSString::LINEAR_BIT),
+                      Address(str, JSRope::offsetOfLeft()), dest);
+    } else {
+        loadPtr(Address(str, JSRope::offsetOfLeft()), dest);
+    }
+}
+
+void
+MacroAssembler::storeRopeChildren(Register left, Register right, Register str)
+{
+    storePtr(left, Address(str, JSRope::offsetOfLeft()));
+    storePtr(right, Address(str, JSRope::offsetOfRight()));
+}
+
+void
+MacroAssembler::loadDependentStringBase(Register str, Register dest)
+{
+    MOZ_ASSERT(str != dest);
+
+    if (JitOptions.spectreStringMitigations) {
+        // If the string does not have a base-string, zero the |str| register.
+        // The code below loads str->base so this should block speculative
+        // execution.
+        movePtr(ImmWord(0), dest);
+        test32MovePtr(Assembler::Zero,
+                      Address(str, JSString::offsetOfFlags()), Imm32(JSString::HAS_BASE_BIT),
+                      dest, str);
+    }
+
+    loadPtr(Address(str, JSDependentString::offsetOfBase()), dest);
+}
+
+void
+MacroAssembler::storeDependentStringBase(Register base, Register str)
+{
+    storePtr(base, Address(str, JSDependentString::offsetOfBase()));
 }
 
 void
@@ -1397,8 +1533,7 @@ MacroAssembler::loadStringChar(Register str, Register index, Register output, Re
     Label notRope;
     branchIfNotRope(str, &notRope);
 
-    // Load leftChild.
-    loadPtr(Address(str, JSRope::offsetOfLeft()), output);
+    loadRopeLeftChild(str, output);
 
     // Check if the index is contained in the leftChild.
     // Todo: Handle index in the rightChild.
@@ -1413,14 +1548,13 @@ MacroAssembler::loadStringChar(Register str, Register index, Register output, Re
     // We have to check the left/right side for ropes,
     // because a TwoByte rope might have a Latin1 child.
     branchLatin1String(output, &isLatin1);
-
-    loadStringChars(output, output);
-    load16ZeroExtend(BaseIndex(output, index, TimesTwo), output);
+    loadStringChars(output, scratch, CharEncoding::TwoByte);
+    load16ZeroExtend(BaseIndex(scratch, index, TimesTwo), output);
     jump(&done);
 
     bind(&isLatin1);
-    loadStringChars(output, output);
-    load8ZeroExtend(BaseIndex(output, index, TimesOne), output);
+    loadStringChars(output, scratch, CharEncoding::Latin1);
+    load8ZeroExtend(BaseIndex(scratch, index, TimesOne), output);
 
     bind(&done);
 }
@@ -3263,111 +3397,6 @@ MacroAssembler::emitPreBarrierFastPath(JSRuntime* rt, MIRType type, Register tem
     branchTestPtr(Assembler::NonZero, temp2, temp1, noBarrier);
 }
 
-// ========================================================================
-// JS atomic operations.
-
-template<typename T>
-static void
-CompareExchangeJS(MacroAssembler& masm, Scalar::Type arrayType, const Synchronization& sync,
-                  const T& mem, Register oldval, Register newval, Register temp, AnyRegister output)
-{
-    if (arrayType == Scalar::Uint32) {
-        masm.compareExchange(arrayType, sync, mem, oldval, newval, temp);
-        masm.convertUInt32ToDouble(temp, output.fpu());
-    } else {
-        masm.compareExchange(arrayType, sync, mem, oldval, newval, output.gpr());
-    }
-}
-
-void
-MacroAssembler::compareExchangeJS(Scalar::Type arrayType, const Synchronization& sync,
-                                  const Address& mem, Register oldval, Register newval,
-                                  Register temp, AnyRegister output)
-{
-    CompareExchangeJS(*this, arrayType, sync, mem, oldval, newval, temp, output);
-}
-
-void
-MacroAssembler::compareExchangeJS(Scalar::Type arrayType, const Synchronization& sync,
-                                  const BaseIndex& mem, Register oldval, Register newval,
-                                  Register temp, AnyRegister output)
-{
-    CompareExchangeJS(*this, arrayType, sync, mem, oldval, newval, temp, output);
-}
-
-template<typename T>
-static void
-AtomicExchangeJS(MacroAssembler& masm, Scalar::Type arrayType, const Synchronization& sync,
-                 const T& mem, Register value, Register temp, AnyRegister output)
-{
-    if (arrayType == Scalar::Uint32) {
-        masm.atomicExchange(arrayType, sync, mem, value, temp);
-        masm.convertUInt32ToDouble(temp, output.fpu());
-    } else {
-        masm.atomicExchange(arrayType, sync, mem, value, output.gpr());
-    }
-}
-
-void
-MacroAssembler::atomicExchangeJS(Scalar::Type arrayType, const Synchronization& sync,
-                                 const Address& mem, Register value, Register temp,
-                                 AnyRegister output)
-{
-    AtomicExchangeJS(*this, arrayType, sync, mem, value, temp, output);
-}
-
-void
-MacroAssembler::atomicExchangeJS(Scalar::Type arrayType, const Synchronization& sync,
-                                 const BaseIndex& mem, Register value, Register temp,
-                                 AnyRegister output)
-{
-    AtomicExchangeJS(*this, arrayType, sync, mem, value, temp, output);
-}
-
-template<typename T>
-static void
-AtomicFetchOpJS(MacroAssembler& masm, Scalar::Type arrayType, const Synchronization& sync,
-                AtomicOp op, Register value, const T& mem, Register temp1, Register temp2,
-                AnyRegister output)
-{
-    if (arrayType == Scalar::Uint32) {
-        masm.atomicFetchOp(arrayType, sync, op, value, mem, temp2, temp1);
-        masm.convertUInt32ToDouble(temp1, output.fpu());
-    } else {
-        masm.atomicFetchOp(arrayType, sync, op, value, mem, temp1, output.gpr());
-    }
-}
-
-void
-MacroAssembler::atomicFetchOpJS(Scalar::Type arrayType, const Synchronization& sync, AtomicOp op,
-                                Register value, const Address& mem, Register temp1, Register temp2,
-                                AnyRegister output)
-{
-    AtomicFetchOpJS(*this, arrayType, sync, op, value, mem, temp1, temp2, output);
-}
-
-void
-MacroAssembler::atomicFetchOpJS(Scalar::Type arrayType, const Synchronization& sync, AtomicOp op,
-                                Register value, const BaseIndex& mem, Register temp1, Register temp2,
-                                AnyRegister output)
-{
-    AtomicFetchOpJS(*this, arrayType, sync, op, value, mem, temp1, temp2, output);
-}
-
-void
-MacroAssembler::atomicEffectOpJS(Scalar::Type arrayType, const Synchronization& sync, AtomicOp op,
-                                 Register value, const BaseIndex& mem, Register temp)
-{
-    atomicEffectOp(arrayType, sync, op, value, mem, temp);
-}
-
-void
-MacroAssembler::atomicEffectOpJS(Scalar::Type arrayType, const Synchronization& sync, AtomicOp op,
-                                 Register value, const Address& mem, Register temp)
-{
-    atomicEffectOp(arrayType, sync, op, value, mem, temp);
-}
-
 //}}} check_macroassembler_style
 
 void
@@ -3427,99 +3456,27 @@ MacroAssembler::debugAssertIsObject(const ValueOperand& val)
 #endif
 }
 
-template <typename T>
-void
-MacroAssembler::computeSpectreIndexMaskGeneric(Register index, const T& length, Register output)
-{
-    MOZ_ASSERT(JitOptions.spectreIndexMasking);
-    MOZ_ASSERT(index != output);
-
-    // mask := ((index - length) & ~index) >> 31
-    mov(index, output);
-    sub32(length, output);
-    not32(index);
-    and32(index, output);
-    not32(index); // Restore index register to its original value.
-    rshift32Arithmetic(Imm32(31), output);
-}
-
-template <typename T>
-void
-MacroAssembler::computeSpectreIndexMask(int32_t index, const T& length, Register output)
-{
-    MOZ_ASSERT(JitOptions.spectreIndexMasking);
-
-    // mask := ((index - length) & ~index) >> 31
-    move32(Imm32(index), output);
-    sub32(length, output);
-    and32(Imm32(~index), output);
-    rshift32Arithmetic(Imm32(31), output);
-}
-
-void
-MacroAssembler::computeSpectreIndexMask(Register index, Register length, Register output)
-{
-    MOZ_ASSERT(JitOptions.spectreIndexMasking);
-    MOZ_ASSERT(length != output);
-    MOZ_ASSERT(index != output);
-
-#if JS_BITS_PER_WORD == 64
-    // On 64-bit platforms, we can use a faster algorithm:
-    //
-    //   mask := (uint64_t(index) - uint64_t(length)) >> 32
-    //
-    // mask is 0x11…11 if index < length, 0 otherwise.
-    move32(index, output);
-    subPtr(length, output);
-    rshiftPtr(Imm32(32), output);
-#else
-    computeSpectreIndexMaskGeneric(index, length, output);
-#endif
-}
-
-void
-MacroAssembler::spectreMaskIndex(int32_t index, Register length, Register output)
-{
-    MOZ_ASSERT(length != output);
-    if (index == 0) {
-        move32(Imm32(index), output);
-    } else {
-        computeSpectreIndexMask(index, length, output);
-        and32(Imm32(index), output);
-    }
-}
-
-void
-MacroAssembler::spectreMaskIndex(int32_t index, const Address& length, Register output)
-{
-    MOZ_ASSERT(length.base != output);
-    if (index == 0) {
-        move32(Imm32(index), output);
-    } else {
-        computeSpectreIndexMask(index, length, output);
-        and32(Imm32(index), output);
-    }
-}
-
 void
 MacroAssembler::spectreMaskIndex(Register index, Register length, Register output)
 {
+    MOZ_ASSERT(JitOptions.spectreIndexMasking);
     MOZ_ASSERT(length != output);
     MOZ_ASSERT(index != output);
 
-    computeSpectreIndexMask(index, length, output);
-    and32(index, output);
+    move32(Imm32(0), output);
+    cmp32Move32(Assembler::Below, index, length, index, output);
 }
 
 void
 MacroAssembler::spectreMaskIndex(Register index, const Address& length, Register output)
 {
+    MOZ_ASSERT(JitOptions.spectreIndexMasking);
     MOZ_ASSERT(index != length.base);
     MOZ_ASSERT(length.base != output);
     MOZ_ASSERT(index != output);
 
-    computeSpectreIndexMaskGeneric(index, length, output);
-    and32(index, output);
+    move32(Imm32(0), output);
+    cmp32Move32(Assembler::Below, index, length, index, output);
 }
 
 void
@@ -3532,38 +3489,6 @@ MacroAssembler::boundsCheck32PowerOfTwo(Register index, uint32_t length, Label* 
     // only affects speculative execution.
     if (JitOptions.spectreIndexMasking)
         and32(Imm32(length - 1), index);
-}
-
-void
-MacroAssembler::boundsCheck32ForLoad(Register index, Register length, Register scratch,
-                                     Label* failure)
-{
-    MOZ_ASSERT(index != length);
-    MOZ_ASSERT(length != scratch);
-    MOZ_ASSERT(index != scratch);
-
-    branch32(Assembler::AboveOrEqual, index, length, failure);
-
-    if (JitOptions.spectreIndexMasking) {
-        computeSpectreIndexMask(index, length, scratch);
-        and32(scratch, index);
-    }
-}
-
-void
-MacroAssembler::boundsCheck32ForLoad(Register index, const Address& length, Register scratch,
-                                     Label* failure)
-{
-    MOZ_ASSERT(index != length.base);
-    MOZ_ASSERT(length.base != scratch);
-    MOZ_ASSERT(index != scratch);
-
-    branch32(Assembler::BelowOrEqual, length, index, failure);
-
-    if (JitOptions.spectreIndexMasking) {
-        computeSpectreIndexMaskGeneric(index, length, scratch);
-        and32(scratch, index);
-    }
 }
 
 namespace js {

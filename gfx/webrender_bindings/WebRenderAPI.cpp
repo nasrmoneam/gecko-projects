@@ -539,7 +539,6 @@ WebRenderAPI::Capture()
   const char* border = "--------------------------\n";
   printf("%s Capturing WR state to: %s\n%s", border, path, border);
   wr_api_capture(mDocHandle, path, bits);
-  RenderThread::Get()->IncPendingFrameCount(GetId());
 }
 
 
@@ -1311,15 +1310,15 @@ DisplayListBuilder::TopmostClipId()
   return Nothing();
 }
 
-Maybe<wr::WrScrollId>
+wr::WrScrollId
 DisplayListBuilder::TopmostScrollId()
 {
   for (auto it = mClipStack.crbegin(); it != mClipStack.crend(); it++) {
     if (it->is<wr::WrScrollId>()) {
-      return Some(it->as<wr::WrScrollId>());
+      return it->as<wr::WrScrollId>();
     }
   }
-  return Nothing();
+  return wr::WrScrollId { 0 };
 }
 
 bool

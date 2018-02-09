@@ -1710,6 +1710,84 @@ MacroAssembler::branchToComputedAddress(const BaseIndex& addr)
     MOZ_CRASH("branchToComputedAddress");
 }
 
+void
+MacroAssembler::cmp32Move32(Condition cond, Register lhs, Register rhs, Register src,
+                            Register dest)
+{
+    cmp32(lhs, rhs);
+    Csel(ARMRegister(dest, 32), ARMRegister(src, 32), ARMRegister(dest, 32), cond);
+}
+
+void
+MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs, Register src,
+                            Register dest)
+{
+    cmp32(lhs, rhs);
+    Csel(ARMRegister(dest, 32), ARMRegister(src, 32), ARMRegister(dest, 32), cond);
+}
+
+void
+MacroAssembler::cmp32MovePtr(Condition cond, Register lhs, Imm32 rhs, Register src,
+                             Register dest)
+{
+    cmp32(lhs, rhs);
+    Csel(ARMRegister(dest, 64), ARMRegister(src, 64), ARMRegister(dest, 64), cond);
+}
+
+void
+MacroAssembler::test32LoadPtr(Condition cond, const Address& addr, Imm32 mask, const Address& src,
+                              Register dest)
+{
+    MOZ_ASSERT(cond == Assembler::Zero || cond == Assembler::NonZero);
+
+    // ARM64 does not support conditional loads, so we use a branch with a CSel
+    // (to prevent Spectre attacks).
+    vixl::UseScratchRegisterScope temps(this);
+    const ARMRegister scratch64 = temps.AcquireX();
+    Label done;
+    branchTest32(Assembler::InvertCondition(cond), addr, mask, &done);
+    loadPtr(src, scratch64.asUnsized());
+    Csel(ARMRegister(dest, 64), scratch64, ARMRegister(dest, 64), cond);
+    bind(&done);
+}
+
+void
+MacroAssembler::test32MovePtr(Condition cond, const Address& addr, Imm32 mask, Register src,
+                              Register dest)
+{
+    MOZ_ASSERT(cond == Assembler::Zero || cond == Assembler::NonZero);
+    test32(addr, mask);
+    Csel(ARMRegister(dest, 64), ARMRegister(src, 64), ARMRegister(dest, 64), cond);
+}
+
+void
+MacroAssembler::boundsCheck32ForLoad(Register index, Register length, Register scratch,
+                                     Label* failure)
+{
+    MOZ_ASSERT(index != length);
+    MOZ_ASSERT(length != scratch);
+    MOZ_ASSERT(index != scratch);
+
+    branch32(Assembler::BelowOrEqual, length, index, failure);
+
+    if (JitOptions.spectreIndexMasking)
+        Csel(ARMRegister(index, 32), ARMRegister(index, 32), vixl::wzr, Assembler::Above);
+}
+
+void
+MacroAssembler::boundsCheck32ForLoad(Register index, const Address& length, Register scratch,
+                                     Label* failure)
+{
+    MOZ_ASSERT(index != length.base);
+    MOZ_ASSERT(length.base != scratch);
+    MOZ_ASSERT(index != scratch);
+
+    branch32(Assembler::BelowOrEqual, length, index, failure);
+
+    if (JitOptions.spectreIndexMasking)
+        Csel(ARMRegister(index, 32), ARMRegister(index, 32), vixl::wzr, Assembler::Above);
+}
+
 // ========================================================================
 // Memory access primitives.
 void

@@ -178,7 +178,7 @@ pub struct ByteSlice {
 impl ByteSlice {
     pub fn new(slice: &[u8]) -> ByteSlice {
         ByteSlice {
-            buffer: &slice[0],
+            buffer: slice.as_ptr(),
             len: slice.len(),
         }
     }
@@ -198,7 +198,7 @@ impl MutByteSlice {
     pub fn new(slice: &mut [u8]) -> MutByteSlice {
         let len = slice.len();
         MutByteSlice {
-            buffer: &mut slice[0],
+            buffer: slice.as_mut_ptr(),
             len: len,
         }
     }
@@ -454,6 +454,7 @@ struct CppNotifier {
 unsafe impl Send for CppNotifier {}
 
 extern "C" {
+    fn wr_notifier_wake_up(window_id: WrWindowId);
     fn wr_notifier_new_frame_ready(window_id: WrWindowId);
     fn wr_notifier_new_scroll_frame_ready(window_id: WrWindowId,
                                           composite_needed: bool);
@@ -470,7 +471,7 @@ impl RenderNotifier for CppNotifier {
 
     fn wake_up(&self) {
         unsafe {
-            wr_notifier_new_frame_ready(self.window_id);
+            wr_notifier_wake_up(self.window_id);
         }
     }
 
@@ -989,7 +990,7 @@ pub extern "C" fn wr_transaction_scroll_layer(
     new_scroll_origin: LayoutPoint
 ) {
     assert!(unsafe { is_in_compositor_thread() });
-    let scroll_id = IdType::ExternalScrollId(ExternalScrollId(scroll_id, pipeline_id));
+    let scroll_id = ScrollNodeIdType::from(ExternalScrollId(scroll_id, pipeline_id));
     txn.scroll_node_with_id(new_scroll_origin, scroll_id, ScrollClamping::NoClamping);
 }
 
@@ -1163,20 +1164,26 @@ pub extern "C" fn wr_api_capture(
     path: *const c_char,
     bits_raw: u32,
 ) {
-    use std::fs::File;
+    use std::fs::{File, create_dir_all};
     use std::io::Write;
 
     let cstr = unsafe { CStr::from_ptr(path) };
     let path = PathBuf::from(&*cstr.to_string_lossy());
-    let revision_path = path.join("wr.txt");
+
+    let _ = create_dir_all(&path);
+    match File::create(path.join("wr.txt")) {
+        Ok(mut file) => {
+            let revision = include_bytes!("../revision.txt");
+            file.write(revision).unwrap();
+        }
+        Err(e) => {
+            println!("Unable to create path '{:?}' for capture: {:?}", path, e);
+            return
+        }
+    }
+
     let bits = CaptureBits::from_bits(bits_raw as _).unwrap();
     dh.api.save_capture(path, bits);
-
-    let revision = include_bytes!("../revision.txt");
-    File::create(revision_path)
-        .unwrap()
-        .write(revision)
-        .unwrap();
 }
 
 #[cfg(target_os = "windows")]

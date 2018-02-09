@@ -7,8 +7,6 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
-
 const winUtil = content.QueryInterface(Ci.nsIInterfaceRequestor)
     .getInterface(Ci.nsIDOMWindowUtils);
 
@@ -787,7 +785,9 @@ function createATouch(el, corx, cory, touchId) {
  */
 async function performActions(msg) {
   let chain = action.Chain.fromJSON(msg.actions);
-  await action.dispatch(chain, curContainer.frame);
+  await action.dispatch(chain, curContainer.frame,
+      !capabilities.get("moz:useNonSpecCompliantPointerOrigin"),
+  );
 }
 
 /**

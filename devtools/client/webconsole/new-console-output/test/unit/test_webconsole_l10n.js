@@ -3,8 +3,7 @@
 
 "use strict";
 
-const { utils: Cu } = Components;
-const { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const { require } = ChromeUtils.import("resource://devtools/shared/Loader.jsm", {});
 
 function run_test() {
   const TEST_TIMESTAMP = 12345678;

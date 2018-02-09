@@ -12,8 +12,6 @@
 
 this.EXPORTED_SYMBOLS = ["EnsureFxAccountsWebChannel"];
 
-const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
-
 ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 ChromeUtils.import("resource://gre/modules/FxAccountsCommon.js");
 
@@ -524,7 +522,7 @@ var singleton;
 // things) and allowing multiple channels would cause such notifications to be
 // sent multiple times.
 this.EnsureFxAccountsWebChannel = () => {
-  let contentUri = Services.urlFormatter.formatURLPref("identity.fxaccounts.remote.webchannel.uri");
+  let contentUri = Services.urlFormatter.formatURLPref("identity.fxaccounts.remote.root");
   if (singleton && singleton._contentUri !== contentUri) {
     singleton.tearDown();
     singleton = null;

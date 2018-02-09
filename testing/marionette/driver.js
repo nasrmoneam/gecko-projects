@@ -5,8 +5,6 @@
 "use strict";
 /* global XPCNativeWrapper */
 
-const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
-
 ChromeUtils.import("resource://gre/modules/Log.jsm");
 ChromeUtils.import("resource://gre/modules/Preferences.jsm");
 ChromeUtils.import("resource://gre/modules/Services.jsm");
@@ -600,6 +598,10 @@ GeckoDriver.prototype.listeningPromise = function() {
  *
  *  <dt><code>moz:accessibilityChecks</code> (boolean)
  *  <dd>Run a11y checks when clicking elements.
+ *
+ *  <dt><code>moz:useNonSpecCompliantPointerOrigin</code> (boolean)
+ *  <dd>Use the not WebDriver conforming calculation of the pointer origin
+ *   when the origin is an element, and the element center point is used.
  *
  *  <dt><code>moz:webdriverClick</code> (boolean)
  *  <dd>Use a WebDriver conforming <i>WebDriver::ElementClick</i>.

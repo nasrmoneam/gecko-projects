@@ -51,8 +51,6 @@
 
 this.EXPORTED_SYMBOLS = ["SyncedBookmarksMirror"];
 
-const { utils: Cu, interfaces: Ci } = Components;
-
 Cu.importGlobalProperties(["URL"]);
 
 ChromeUtils.import("resource://gre/modules/Services.jsm");
@@ -414,6 +412,7 @@ class SyncedBookmarksMirror {
       await this.db.execute(`DELETE FROM itemsMoved`);
       await this.db.execute(`DELETE FROM annosChanged`);
       await this.db.execute(`DELETE FROM keywordsChanged`);
+      await this.db.execute(`DELETE FROM itemsToWeaklyReupload`);
       await this.db.execute(`DELETE FROM itemsToUpload`);
 
       return changeRecords;
@@ -439,6 +438,7 @@ class SyncedBookmarksMirror {
       async function(db) {
         await db.executeTransaction(async function() {
           await db.execute(`DELETE FROM meta`);
+          await db.execute(`DELETE FROM structure`);
           await db.execute(`DELETE FROM items`);
           await db.execute(`DELETE FROM urls`);
 
@@ -1018,15 +1018,16 @@ class SyncedBookmarksMirror {
       INSERT OR IGNORE INTO moz_places(url, url_hash, rev_host, hidden,
                                        frecency, guid)
       SELECT u.url, u.hash, u.revHost, 0,
-             (CASE SUBSTR(u.url, 1, 6) WHEN 'place:' THEN 0 ELSE -1 END),
-             IFNULL(h.guid, u.guid)
+             (CASE v.kind WHEN :queryKind THEN 0 ELSE -1 END),
+             IFNULL((SELECT h.guid FROM moz_places h
+                     WHERE h.url_hash = u.hash AND
+                           h.url = u.url), u.guid)
       FROM items v
       JOIN urls u ON u.id = v.urlId
-      LEFT JOIN moz_places h ON h.url_hash = u.hash AND
-                                h.url = u.url
       JOIN mergeStates r ON r.mergedGuid = v.guid
       WHERE r.valueState = :valueState`,
-      { valueState: BookmarkMergeState.TYPE.REMOTE });
+      { queryKind: SyncedBookmarksMirror.KIND.QUERY,
+        valueState: BookmarkMergeState.TYPE.REMOTE });
     await this.db.execute(`DELETE FROM moz_updatehostsinsert_temp`);
 
     // Deleting from `newRemoteItems` fires the `insertNewLocalItems` and
@@ -1212,8 +1213,7 @@ class SyncedBookmarksMirror {
       FROM guidsChanged c
       JOIN moz_bookmarks b ON b.id = c.itemId
       JOIN moz_bookmarks p ON p.id = b.parent
-      JOIN mergeStates r ON r.mergedGuid = b.guid
-      ORDER BY r.level, p.id, b.position`);
+      ORDER BY c.level, p.id, b.position`);
     for (let row of changedGuidRows) {
       let info = {
         id: row.getResultByName("id"),
@@ -1228,9 +1228,6 @@ class SyncedBookmarksMirror {
     }
 
     MirrorLog.debug("Recording observer notifications for new items");
-    // We `LEFT JOIN` to `mergeStates` because `itemsAdded` may include tag
-    // folders and entries, which are not part of the merged tree structure, and
-    // so don't exist in `mergeStates`.
     let newItemRows = await this.db.execute(`
       SELECT b.id, p.id AS parentId, b.position, b.type, h.url,
              IFNULL(b.title, "") AS title, b.dateAdded, b.guid,
@@ -1239,8 +1236,7 @@ class SyncedBookmarksMirror {
       JOIN moz_bookmarks b ON b.guid = n.guid
       JOIN moz_bookmarks p ON p.id = b.parent
       LEFT JOIN moz_places h ON h.id = b.fk
-      LEFT JOIN mergeStates r ON r.mergedGuid = b.guid
-      ORDER BY r.level, p.id, b.position`);
+      ORDER BY n.level, p.id, b.position`);
     for (let row of newItemRows) {
       let info = {
         id: row.getResultByName("id"),
@@ -1265,8 +1261,7 @@ class SyncedBookmarksMirror {
       FROM itemsMoved c
       JOIN moz_bookmarks b ON b.id = c.itemId
       JOIN moz_bookmarks p ON p.id = b.parent
-      JOIN mergeStates r ON r.mergedGuid = b.guid
-      ORDER BY r.level, newParentId, newPosition`);
+      ORDER BY c.level, newParentId, newPosition`);
     for (let row of movedItemRows) {
       let info = {
         id: row.getResultByName("id"),
@@ -1292,10 +1287,9 @@ class SyncedBookmarksMirror {
       FROM itemsChanged c
       JOIN moz_bookmarks b ON b.id = c.itemId
       JOIN moz_bookmarks p ON p.id = b.parent
-      JOIN mergeStates r ON r.mergedGuid = b.guid
       LEFT JOIN moz_places h ON h.id = b.fk
       LEFT JOIN moz_places i ON i.id = c.oldPlaceId
-      ORDER BY r.level, p.id, b.position`);
+      ORDER BY c.level, p.id, b.position`);
     for (let row of changedItemRows) {
       let info = {
         id: row.getResultByName("id"),
@@ -1374,10 +1368,19 @@ class SyncedBookmarksMirror {
    * items again on the next sync.
    */
   async stageItemsToUpload() {
-    // Stage all locally changed items for upload, along with any remotely
-    // changed records with older local creation dates. These are tracked
-    // "weakly", in the in-memory table only. If the upload is interrupted
-    // or fails, we won't reupload the record on the next sync.
+    // Stage remotely changed items with older local creation dates. These are
+    // tracked "weakly": if the upload is interrupted or fails, we won't
+    // reupload the record on the next sync.
+    await this.db.execute(`
+      INSERT INTO itemsToWeaklyReupload(id)
+      SELECT b.id FROM moz_bookmarks b
+      JOIN mergeStates r ON r.mergedGuid = b.guid
+      JOIN items v ON v.guid = r.mergedGuid
+      WHERE r.valueState = :valueState AND
+            b.dateAdded < v.dateAdded`,
+      { valueState: BookmarkMergeState.TYPE.REMOTE });
+
+    // Stage remaining locally changed items for upload.
     await this.db.execute(`
       WITH RECURSIVE
       syncedItems(id, level) AS (
@@ -1386,61 +1389,70 @@ class SyncedBookmarksMirror {
         UNION ALL
         SELECT b.id, s.level + 1 AS level FROM moz_bookmarks b
         JOIN syncedItems s ON s.id = b.parent
-      ),
-      annos(itemId, name, content) AS (
-        SELECT a.item_id, n.name, a.content FROM moz_items_annos a
-        JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
       )
-      INSERT INTO itemsToUpload(guid, syncChangeCounter, parentGuid,
+      INSERT INTO itemsToUpload(id, guid, syncChangeCounter, parentGuid,
                                 parentTitle, dateAdded, type, title, isQuery,
                                 url, tags, description, loadInSidebar,
                                 smartBookmarkName, keyword, feedURL, siteURL,
                                 position)
-      SELECT b.guid, b.syncChangeCounter, p.guid, p.title, b.dateAdded, b.type,
-             b.title, IFNULL(SUBSTR(h.url, 1, 6) = 'place:', 0), h.url,
+      SELECT b.id, b.guid, b.syncChangeCounter, p.guid, p.title, b.dateAdded,
+             b.type, b.title, IFNULL(SUBSTR(h.url, 1, 6) = 'place:', 0), h.url,
              (SELECT GROUP_CONCAT(t.title, ',') FROM moz_bookmarks e
               JOIN moz_bookmarks t ON t.id = e.parent
               JOIN moz_bookmarks r ON r.id = t.parent
-              WHERE r.guid = :tagsGuid AND
+              WHERE b.type = :bookmarkType AND
+                    r.guid = :tagsGuid AND
                     e.fk = h.id),
-             (SELECT content FROM annos WHERE itemId = b.id AND
-                                              name = :descriptionAnno),
-             IFNULL((SELECT content FROM annos WHERE itemId = b.id AND
-                                                     name = :sidebarAnno), 0),
-             (SELECT content FROM annos WHERE itemId = b.id AND
-                                              name = :smartBookmarkAnno),
+             (SELECT a.content FROM moz_items_annos a
+              JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
+              WHERE b.type IN (:bookmarkType, :folderType) AND
+                    a.item_id = b.id AND
+                    n.name = :descriptionAnno),
+             IFNULL((SELECT a.content FROM moz_items_annos a
+                     JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
+                     WHERE a.item_id = b.id AND
+                           n.name = :sidebarAnno), 0),
+             (SELECT a.content FROM moz_items_annos a
+              JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
+              WHERE a.item_id = b.id AND
+                    n.name = :smartBookmarkAnno),
              (SELECT keyword FROM moz_keywords WHERE place_id = h.id),
-             (SELECT content FROM annos WHERE itemId = b.id AND
-                                              name = :feedURLAnno),
-             (SELECT content FROM annos WHERE itemId = b.id AND
-                                              name = :siteURLAnno),
+             (SELECT a.content FROM moz_items_annos a
+              JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
+              WHERE b.type = :folderType AND
+                    a.item_id = b.id AND
+                    n.name = :feedURLAnno),
+             (SELECT a.content FROM moz_items_annos a
+              JOIN moz_anno_attributes n ON n.id = a.anno_attribute_id
+              WHERE b.type = :folderType AND
+                    a.item_id = b.id AND
+                    n.name = :siteURLAnno),
              b.position
       FROM moz_bookmarks b
       JOIN moz_bookmarks p ON p.id = b.parent
       JOIN syncedItems s ON s.id = b.id
       LEFT JOIN moz_places h ON h.id = b.fk
-      JOIN mergeStates r ON r.mergedGuid = b.guid
-      LEFT JOIN items v ON v.guid = r.mergedGuid
+      LEFT JOIN itemsToWeaklyReupload w ON w.id = b.id
       WHERE b.syncChangeCounter >= 1 OR
-            (r.valueState = :valueState AND
-              b.dateAdded < v.dateAdded)`,
+            w.id NOT NULL`,
       { menuGuid: PlacesUtils.bookmarks.menuGuid,
         toolbarGuid: PlacesUtils.bookmarks.toolbarGuid,
         unfiledGuid: PlacesUtils.bookmarks.unfiledGuid,
         mobileGuid: PlacesUtils.bookmarks.mobileGuid,
+        bookmarkType: PlacesUtils.bookmarks.TYPE_BOOKMARK,
         tagsGuid: PlacesUtils.bookmarks.tagsGuid,
         descriptionAnno: PlacesSyncUtils.bookmarks.DESCRIPTION_ANNO,
         sidebarAnno: PlacesSyncUtils.bookmarks.SIDEBAR_ANNO,
         smartBookmarkAnno: PlacesSyncUtils.bookmarks.SMART_BOOKMARKS_ANNO,
+        folderType: PlacesUtils.bookmarks.TYPE_FOLDER,
         feedURLAnno: PlacesUtils.LMANNO_FEEDURI,
-        siteURLAnno: PlacesUtils.LMANNO_SITEURI,
-        valueState: BookmarkMergeState.TYPE.REMOTE });
+        siteURLAnno: PlacesUtils.LMANNO_SITEURI });
 
     // Record tag folder names for tag queries. Parsing query URLs one by one
     // is inefficient, but queries aren't common today, and we can remove this
     // logic entirely once bug 1293445 lands.
     let queryRows = await this.db.execute(`
-      SELECT guid, url FROM itemsToUpload
+      SELECT id, url FROM itemsToUpload
       WHERE isQuery`);
 
     let tagFolderNameParams = [];
@@ -1453,7 +1465,7 @@ class SyncedBookmarksMirror {
       }
       let tagFolderId = Number(tagQueryParams.get("folder"));
       tagFolderNameParams.push({
-        guid: row.getResultByName("guid"),
+        id: row.getResultByName("id"),
         tagFolderId,
         folderType: PlacesUtils.bookmarks.TYPE_FOLDER,
       });
@@ -1465,16 +1477,15 @@ class SyncedBookmarksMirror {
           tagFolderName = (SELECT b.title FROM moz_bookmarks b
                            WHERE b.id = :tagFolderId AND
                                  b.type = :folderType)
-        WHERE guid = :guid`);
+        WHERE id = :id`);
     }
 
     // Record the child GUIDs of locally changed folders, which we use to
     // populate the `children` array in the record.
     await this.db.execute(`
-      INSERT INTO structureToUpload(guid, parentGuid, position)
-      SELECT b.guid, p.guid, b.position FROM moz_bookmarks b
-      JOIN moz_bookmarks p ON p.id = b.parent
-      JOIN itemsToUpload o ON o.guid = p.guid`);
+      INSERT INTO structureToUpload(guid, parentId, position)
+      SELECT b.guid, b.parent, b.position FROM moz_bookmarks b
+      JOIN itemsToUpload o ON o.id = b.parent`);
 
     // Finally, stage tombstones for deleted items. Ignore conflicts if we have
     // tombstones for undeleted items; Places Maintenance should clean these up.
@@ -1495,7 +1506,7 @@ class SyncedBookmarksMirror {
     let changeRecords = {};
 
     let itemRows = await this.db.execute(`
-      SELECT syncChangeCounter, guid, isDeleted, type, isQuery,
+      SELECT id, syncChangeCounter, guid, isDeleted, type, isQuery,
              smartBookmarkName, IFNULL(tagFolderName, "") AS tagFolderName,
              loadInSidebar, keyword, tags, url, IFNULL(title, "") AS title,
              description, feedURL, siteURL, position, parentGuid,
@@ -1628,9 +1639,9 @@ class SyncedBookmarksMirror {
           }
           let childGuidRows = await this.db.executeCached(`
             SELECT guid FROM structureToUpload
-            WHERE parentGuid = :guid
+            WHERE parentId = :id
             ORDER BY position`,
-            { guid });
+            { id: row.getResultByName("id") });
           folderCleartext.children = childGuidRows.map(row => {
             let childGuid = row.getResultByName("guid");
             return PlacesSyncUtils.bookmarks.guidToRecordId(childGuid);
@@ -1906,12 +1917,12 @@ async function initializeTempMirrorEntities(db) {
   // that Places uses to maintain schema coherency.
   await db.execute(`
     CREATE TEMP VIEW newRemoteItems(localId, remoteId, localGuid, mergedGuid,
-                                    needsUpdate, type, dateAdded, title,
-                                    oldPlaceId, newPlaceId, newKeyword,
+                                    mergedLevel, needsUpdate, type, dateAdded,
+                                    title, oldPlaceId, newPlaceId, newKeyword,
                                     description, loadInSidebar,
                                     smartBookmarkName, feedURL, siteURL,
                                     syncChangeCounter) AS
-    SELECT b.id, v.id, r.localGuid, r.mergedGuid,
+    SELECT b.id, v.id, r.localGuid, r.mergedGuid, r.level,
            r.valueState = ${BookmarkMergeState.TYPE.REMOTE},
            (CASE WHEN v.kind IN (${[
                         SyncedBookmarksMirror.KIND.BOOKMARK,
@@ -1956,8 +1967,8 @@ async function initializeTempMirrorEntities(db) {
             guid = OLD.localGuid;
 
       /* Record item changed notifications for the updated GUIDs. */
-      INSERT INTO guidsChanged(itemId, oldGuid)
-      SELECT OLD.localId, OLD.localGuid
+      INSERT INTO guidsChanged(itemId, oldGuid, level)
+      SELECT OLD.localId, OLD.localGuid, OLD.mergedLevel
       WHERE OLD.localGuid <> OLD.mergedGuid;
 
       DELETE FROM moz_bookmarks_deleted WHERE guid = OLD.mergedGuid;
@@ -2019,8 +2030,8 @@ async function initializeTempMirrorEntities(db) {
              OLD.syncChangeCounter);
 
       /* Record an item added notification for the new item. */
-      INSERT INTO itemsAdded(guid)
-      VALUES(OLD.mergedGuid);
+      INSERT INTO itemsAdded(guid, level)
+      VALUES(OLD.mergedGuid, OLD.mergedLevel);
 
       /* Insert new keywords after the item, so that "noteKeywordAdded" can find
          the new item by Place ID. */
@@ -2075,8 +2086,8 @@ async function initializeTempMirrorEntities(db) {
                                              OLD.localId NOT NULL
     BEGIN
       /* Record item changed notifications for the title and URL. */
-      INSERT INTO itemsChanged(itemId, oldTitle, oldPlaceId)
-      SELECT id, title, OLD.oldPlaceId FROM moz_bookmarks
+      INSERT INTO itemsChanged(itemId, oldTitle, oldPlaceId, level)
+      SELECT id, title, OLD.oldPlaceId, OLD.mergedLevel FROM moz_bookmarks
       WHERE id = OLD.localId;
 
       UPDATE moz_bookmarks SET
@@ -2193,8 +2204,8 @@ async function initializeTempMirrorEntities(db) {
   // structure to the server.
   await db.execute(`
     CREATE TEMP VIEW newRemoteStructure(localId, oldParentId, newParentId,
-                                        oldPosition, newPosition) AS
-    SELECT b.id, b.parent, p.id, b.position, r.position
+                                        oldPosition, newPosition, newLevel) AS
+    SELECT b.id, b.parent, p.id, b.position, r.position, r.level
     FROM moz_bookmarks b
     JOIN mergeStates r ON r.mergedGuid = b.guid
     JOIN moz_bookmarks p ON p.guid = r.parentGuid
@@ -2218,8 +2229,10 @@ async function initializeTempMirrorEntities(db) {
       /* Record observer notifications for moved items. We ignore items that
          didn't move, and items with placeholder parents and positions of "-1",
          since they're new. */
-      INSERT INTO itemsMoved(itemId, oldParentId, oldParentGuid, oldPosition)
-      SELECT OLD.localId, OLD.oldParentId, p.guid, OLD.oldPosition
+      INSERT INTO itemsMoved(itemId, oldParentId, oldParentGuid, oldPosition,
+                             level)
+      SELECT OLD.localId, OLD.oldParentId, p.guid, OLD.oldPosition,
+             OLD.newLevel
       FROM moz_bookmarks p
       WHERE p.id = OLD.oldParentId AND
             -1 NOT IN (OLD.oldParentId, OLD.oldPosition) AND
@@ -2333,26 +2346,30 @@ async function initializeTempMirrorEntities(db) {
   // bookmark observers for new, updated, moved, and deleted items.
   await db.execute(`CREATE TEMP TABLE itemsAdded(
     guid TEXT PRIMARY KEY,
-    isTagging BOOLEAN NOT NULL DEFAULT 0
+    isTagging BOOLEAN NOT NULL DEFAULT 0,
+    level INTEGER NOT NULL DEFAULT -1
   ) WITHOUT ROWID`);
 
   await db.execute(`CREATE TEMP TABLE guidsChanged(
     itemId INTEGER NOT NULL,
     oldGuid TEXT NOT NULL,
+    level INTEGER NOT NULL DEFAULT -1,
     PRIMARY KEY(itemId, oldGuid)
   ) WITHOUT ROWID`);
 
   await db.execute(`CREATE TEMP TABLE itemsChanged(
     itemId INTEGER PRIMARY KEY,
     oldTitle TEXT,
-    oldPlaceId INTEGER
+    oldPlaceId INTEGER,
+    level INTEGER NOT NULL DEFAULT -1
   )`);
 
   await db.execute(`CREATE TEMP TABLE itemsMoved(
     itemId INTEGER PRIMARY KEY,
     oldParentId INTEGER NOT NULL,
     oldParentGuid TEXT NOT NULL,
-    oldPosition INTEGER NOT NULL
+    oldPosition INTEGER NOT NULL,
+    level INTEGER NOT NULL DEFAULT -1
   )`);
 
   await db.execute(`CREATE TEMP TABLE itemsRemoved(
@@ -2388,10 +2405,15 @@ async function initializeTempMirrorEntities(db) {
     keyword TEXT
   )`);
 
+  await db.execute(`CREATE TEMP TABLE itemsToWeaklyReupload(
+    id INTEGER PRIMARY KEY
+  )`);
+
   // Stores locally changed items staged for upload. See `stageItemsToUpload`
   // for an explanation of why these tables exists.
   await db.execute(`CREATE TEMP TABLE itemsToUpload(
-    guid TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
+    guid TEXT UNIQUE NOT NULL,
     syncChangeCounter INTEGER NOT NULL,
     isDeleted BOOLEAN NOT NULL DEFAULT 0,
     parentGuid TEXT,
@@ -2410,12 +2432,12 @@ async function initializeTempMirrorEntities(db) {
     feedURL TEXT,
     siteURL TEXT,
     position INTEGER
-  ) WITHOUT ROWID`);
+  )`);
 
   await db.execute(`CREATE TEMP TABLE structureToUpload(
     guid TEXT PRIMARY KEY,
-    parentGuid TEXT NOT NULL REFERENCES itemsToUpload(guid)
-                             ON DELETE CASCADE,
+    parentId INTEGER NOT NULL REFERENCES itemsToUpload(id)
+                              ON DELETE CASCADE,
     position INTEGER NOT NULL
   ) WITHOUT ROWID`);
 }
@@ -3353,6 +3375,18 @@ class BookmarkMerger {
                     "${localParentNode} and remotely in ${remoteParentNode}",
                     { remoteChildNode, localParentNode, remoteParentNode });
 
+    if (this.remoteTree.isDeleted(localParentNode.guid)) {
+      MirrorLog.trace("Unconditionally taking remote move for " +
+                      "${remoteChildNode} to ${remoteParentNode} because " +
+                      "local parent ${localParentNode} is deleted remotely",
+                      { remoteChildNode, remoteParentNode, localParentNode });
+
+      let mergedChildNode = this.mergeNode(localChildNode.guid,
+                                           localChildNode, remoteChildNode);
+      mergedNode.mergedChildren.push(mergedChildNode);
+      return false;
+    }
+
     if (localParentNode.needsMerge) {
       if (remoteParentNode.needsMerge) {
         MirrorLog.trace("Local ${localParentNode} and remote " +
@@ -3476,6 +3510,18 @@ class BookmarkMerger {
                     "${localParentNode} and remotely in ${remoteParentNode}",
                     { localChildNode, localParentNode, remoteParentNode });
 
+    if (this.localTree.isDeleted(remoteParentNode.guid)) {
+      MirrorLog.trace("Unconditionally taking local move for " +
+                      "${localChildNode} to ${localParentNode} because " +
+                      "remote parent ${remoteParentNode} is deleted locally",
+                      { localChildNode, localParentNode, remoteParentNode });
+
+      let mergedChildNode = this.mergeNode(localChildNode.guid,
+                                           localChildNode, remoteChildNode);
+      mergedNode.mergedChildren.push(mergedChildNode);
+      return true;
+    }
+
     if (localParentNode.needsMerge) {
       if (remoteParentNode.needsMerge) {
         MirrorLog.trace("Local ${localParentNode} and remote " +
@@ -3534,9 +3580,9 @@ class BookmarkMerger {
    * remote folder node.
    *
    * @param {MergedBookmarkNode} mergedNode
-   *        The merged folder state. This method mutates the merged node to
-   *        append merged children, and change the node's merge state to new
-   *        if needed.
+   *        The merged folder node. This method mutates the merged node to
+   *        append local and remote children, and sets a new merge state
+   *        state if needed.
    * @param {BookmarkNode?} localNode
    *        The local folder node. May be `null` if the folder only exists
    *        remotely.
@@ -3547,30 +3593,40 @@ class BookmarkMerger {
   mergeChildListsIntoMergedNode(mergedNode, localNode, remoteNode) {
     let mergeStateChanged = false;
 
-    // Walk and merge remote children first.
-    MirrorLog.trace("Merging remote children of ${remoteNode} into " +
-                    "${mergedNode}", { remoteNode, mergedNode });
-    if (remoteNode) {
-      for (let remoteChildNode of remoteNode.children) {
-        let remoteChildrenChanged = this.mergeRemoteChildIntoMergedNode(
-          mergedNode, remoteNode, remoteChildNode);
-        if (remoteChildrenChanged) {
+    if (localNode && remoteNode) {
+      if (localNode.newerThan(remoteNode)) {
+        // The folder exists locally and remotely, and the local node is newer.
+        // Walk and merge local children first, followed by remaining unmerged
+        // remote children.
+        if (this.mergeLocalChildrenIntoMergedNode(mergedNode, localNode)) {
+          mergeStateChanged = true;
+        }
+        if (this.mergeRemoteChildrenIntoMergedNode(mergedNode, remoteNode)) {
+          mergeStateChanged = true;
+        }
+      } else {
+        // The folder exists locally and remotely, and the remote node is newer.
+        // Merge remote children first, then remaining local children.
+        if (this.mergeRemoteChildrenIntoMergedNode(mergedNode, remoteNode)) {
+          mergeStateChanged = true;
+        }
+        if (this.mergeLocalChildrenIntoMergedNode(mergedNode, localNode)) {
           mergeStateChanged = true;
         }
       }
-    }
-
-    // Now walk and merge any local children that we haven't already merged.
-    MirrorLog.trace("Merging local children of ${localNode} into " +
-                    "${mergedNode}", { localNode, mergedNode });
-    if (localNode) {
-      for (let localChildNode of localNode.children) {
-        let remoteChildrenChanged = this.mergeLocalChildIntoMergedNode(
-          mergedNode, localNode, localChildNode);
-        if (remoteChildrenChanged) {
-          mergeStateChanged = true;
-        }
+    } else if (localNode) {
+      // The folder only exists locally, so no remote children to merge.
+      if (this.mergeLocalChildrenIntoMergedNode(mergedNode, localNode)) {
+        mergeStateChanged = true;
       }
+    } else if (remoteNode) {
+      // The folder only exists remotely, so local children to merge.
+      if (this.mergeRemoteChildrenIntoMergedNode(mergedNode, remoteNode)) {
+        mergeStateChanged = true;
+      }
+    } else {
+      // Should never happen.
+      throw new TypeError("Can't merge children for two nonexistent nodes");
     }
 
     // Update the merge state if we moved children orphaned on one side by a
@@ -3590,6 +3646,60 @@ class BookmarkMerger {
       });
       mergedNode.mergeState = newMergeState;
     }
+  }
+
+  /**
+   * Recursively merges the children of a remote folder node.
+   *
+   * @param  {MergedBookmarkNode} mergedNode
+   *         The merged folder node. This method mutates the merged node to
+   *         append remote children.
+   * @param  {BookmarkNode} remoteNode
+   *         The remote folder node.
+   * @return {Boolean}
+   *         `true` if the merge produced a new structure that should be
+   *         reuploaded to the server; `false` otherwise.
+   */
+  mergeRemoteChildrenIntoMergedNode(mergedNode, remoteNode) {
+    MirrorLog.trace("Merging remote children of ${remoteNode} into " +
+                    "${mergedNode}", { remoteNode, mergedNode });
+
+    let mergeStateChanged = false;
+    for (let remoteChildNode of remoteNode.children) {
+      let remoteChildrenChanged = this.mergeRemoteChildIntoMergedNode(
+        mergedNode, remoteNode, remoteChildNode);
+      if (remoteChildrenChanged) {
+        mergeStateChanged = true;
+      }
+    }
+    return mergeStateChanged;
+  }
+
+  /**
+   * Recursively merges the children of a local folder node.
+   *
+   * @param  {MergedBookmarkNode} mergedNode
+   *         The merged folder node. This method mutates the merged node to
+   *         append local children.
+   * @param  {BookmarkNode} localNode
+   *         The local folder node.
+   * @return {Boolean}
+   *         `true` if the merge produced a new structure that should be
+   *         reuploaded to the server; `false` otherwise.
+   */
+  mergeLocalChildrenIntoMergedNode(mergedNode, localNode) {
+    MirrorLog.trace("Merging local children of ${localNode} into " +
+                    "${mergedNode}", { localNode, mergedNode });
+
+    let mergeStateChanged = false;
+    for (let localChildNode of localNode.children) {
+      let remoteChildrenChanged = this.mergeLocalChildIntoMergedNode(
+        mergedNode, localNode, localChildNode);
+      if (remoteChildrenChanged) {
+        mergeStateChanged = true;
+      }
+    }
+    return mergeStateChanged;
   }
 
   /**
@@ -3999,6 +4109,7 @@ class BookmarkObserverRecorder {
   }
 
   async updateFrecencies() {
+    MirrorLog.debug("Recalculating frecencies for new URLs");
     await this.db.execute(`
       UPDATE moz_places SET
         frecency = CALCULATE_FRECENCY(id)
