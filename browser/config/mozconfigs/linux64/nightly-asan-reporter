@@ -1,6 +1,7 @@
 # We still need to build with debug symbols
 ac_add_options --disable-debug
 ac_add_options --enable-optimize="-O2 -gline-tables-only"
+ac_add_options --enable-update-channel=${MOZ_UPDATE_CHANNEL}
 
 . $topsrcdir/build/mozconfig.stylo
 
