@@ -42,6 +42,9 @@ config = {
             'android-x86-old-id': {
                 "update_channel": "nightly-old-id",
             },
+            'linux64-asan-reporter': {
+                "update_channel": "nightly-asan",
+            },
         }
     },
     'mozilla-release': {
@@ -224,6 +227,11 @@ config = {
         'stage_ssh_key': 'trybld_dsa',
         'branch_supports_uploadsymbols': False,
         'use_clobberer': False,
+        'platform_overrides': {
+            'linux64-asan-reporter': {
+                "update_channel": "try-asan",
+            },
+        },
     },
 
     ### project branches
@@ -360,6 +368,11 @@ config = {
     # 'maple': {},
     'oak': {
         'stage_server': 'upload.ffxbld.productdelivery.prod.mozaws.net',
+        'platform_overrides': {
+            'linux64-asan-reporter': {
+                "update_channel": "nightly-oak-asan",
+            },
+        },
     },
     'pine': {
         'stage_server': 'upload.ffxbld.productdelivery.prod.mozaws.net',
