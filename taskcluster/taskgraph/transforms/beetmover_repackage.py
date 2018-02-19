@@ -106,7 +106,7 @@ UPSTREAM_ARTIFACT_REPACKAGE_PATHS = {
 # with a beetmover patch in https://github.com/mozilla-releng/beetmoverscript/.
 # See example in bug 1348286
 UPSTREAM_ARTIFACT_SIGNED_REPACKAGE_PATHS = {
-    r'^(linux(|64)|macosx64)(|-devedition)-nightly(|-l10n)$': ['target.complete.mar'],
+    r'^(linux(|64)|macosx64)(|-devedition|-asan-reporter)-nightly(|-l10n)$': ['target.complete.mar'],
     r'^win64(|-devedition)-nightly(|-l10n)$': ['target.complete.mar', 'target.installer.exe'],
     r'^win32(|-devedition)-nightly(|-l10n)$': [
         'target.complete.mar',
