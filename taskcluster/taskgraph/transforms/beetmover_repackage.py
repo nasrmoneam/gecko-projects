@@ -71,7 +71,7 @@ _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_L10N = [
 # with a beetmover patch in https://github.com/mozilla-releng/beetmoverscript/.
 # See example in bug 1348286
 UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
-    r'^(linux(|64)|macosx64)(|-devedition)-nightly$':
+    r'^(linux(|64)|macosx64)(|-devedition|-asan-reporter)-nightly$':
         _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US + [
             'host/bin/mar',
             'host/bin/mbsdiff',
@@ -90,7 +90,10 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
 # with a beetmover patch in https://github.com/mozilla-releng/beetmoverscript/.
 # See example in bug 1348286
 UPSTREAM_ARTIFACT_SIGNED_PATHS = {
-    r'^linux(|64)(|-devedition)-nightly(|-l10n)$': ['target.tar.bz2', 'target.tar.bz2.asc'],
+    r'^linux(|64)(|-devedition|-asan-reporter)-nightly(|-l10n)$': [
+            'target.tar.bz2',
+            'target.tar.bz2.asc',
+    ],
     r'^win(32|64)(|-devedition)-nightly(|-l10n)$': ['target.zip'],
 }
 
@@ -106,7 +109,9 @@ UPSTREAM_ARTIFACT_REPACKAGE_PATHS = {
 # with a beetmover patch in https://github.com/mozilla-releng/beetmoverscript/.
 # See example in bug 1348286
 UPSTREAM_ARTIFACT_SIGNED_REPACKAGE_PATHS = {
-    r'^(linux(|64)|macosx64)(|-devedition|-asan-reporter)-nightly(|-l10n)$': ['target.complete.mar'],
+    r'^(linux(|64)|macosx64)(|-devedition|-asan-reporter)-nightly(|-l10n)$': [
+        'target.complete.mar',
+    ],
     r'^win64(|-devedition)-nightly(|-l10n)$': ['target.complete.mar', 'target.installer.exe'],
     r'^win32(|-devedition)-nightly(|-l10n)$': [
         'target.complete.mar',
