@@ -77,7 +77,7 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
             'host/bin/mbsdiff',
         ],
     r'^linux64-asan-reporter-nightly$':
-        filter(lambda a: a != 'target.crashreporter-symbols.zip',
+        filter(lambda a: a not in ('target.crashreporter-symbols.zip', 'target.jsshell.zip'),
                _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US + [
                     "host/bin/mar",
                     "host/bin/mbsdiff",
