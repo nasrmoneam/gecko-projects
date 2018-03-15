@@ -78,9 +78,6 @@ input {
     background-image: url("../data/content/assets/glyph-edit-16.svg"); }
   .icon.icon-pocket {
     background-image: url("../data/content/assets/glyph-pocket-16.svg"); }
-  .icon.icon-pocket-small {
-    background-image: url("../data/content/assets/glyph-pocket-16.svg");
-    background-size: 12px; }
   .icon.icon-historyItem {
     background-image: url("../data/content/assets/glyph-historyItem-16.svg"); }
   .icon.icon-trending {

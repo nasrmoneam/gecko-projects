@@ -3701,7 +3701,7 @@ const cardContextTypes = {
   },
   pocket: {
     intlID: "type_label_pocket",
-    icon: "pocket-small"
+    icon: "pocket"
   }
 };
 // EXTERNAL MODULE: external "ReactIntl"
